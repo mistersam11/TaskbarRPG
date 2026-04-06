@@ -1257,7 +1257,6 @@ namespace TaskbarRPG
             Panel.SetZIndex(statusText, 70);
         }
 
-        private ScrollViewer panelScroll = null!;
 
         private void CreateMainPanel()
         {
@@ -1268,23 +1267,17 @@ namespace TaskbarRPG
                 FontFamily = new FontFamily("Consolas"),
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(10),
-            };
-
-            panelScroll = new ScrollViewer
-            {
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                Content = panelText
+                MaxWidth = 700
             };
 
             panelBorder = new Border
             {
-                Width = 430,
+                Width = 720,
                 Background = new SolidColorBrush(Color.FromArgb(228, 18, 18, 18)),
                 BorderBrush = Brushes.Gold,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(6),
-                Child = panelScroll,
+                Child = panelText,
                 Visibility = Visibility.Hidden,
             };
 
@@ -1446,12 +1439,13 @@ namespace TaskbarRPG
             groundY = Height - groundStripHeight - playerHeight;
 
             double panelTop = 8;
-            double bottomSafeMargin = 8;
-            double maxPanelHeight = Math.Max(80, Height - panelTop - bottomSafeMargin);
+            double sideMargin = 20;
+            double maxPanelWidth = Math.Max(260, Width - (sideMargin * 2));
 
-            panelBorder.Height = Math.Min(Height - 16, maxPanelHeight);
+            panelBorder.Width = Math.Min(720, maxPanelWidth);
+            panelText.MaxWidth = panelBorder.Width - 20;
 
-            Canvas.SetLeft(panelBorder, Math.Max(20, (Width - panelBorder.Width) / 2));
+            Canvas.SetLeft(panelBorder, Math.Max(sideMargin, (Width - panelBorder.Width) / 2));
             Canvas.SetTop(panelBorder, panelTop);
 
             Canvas.SetLeft(leftExitText, 10);
