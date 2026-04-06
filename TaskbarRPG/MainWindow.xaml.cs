@@ -132,7 +132,6 @@ namespace TaskbarRPG
         {
             if (Quantity > 1)
                 return $"{Item.GetDisplayText()} x{Quantity} - {Price}g";
-
             return $"{Item.GetDisplayText()} - {Price}g";
         }
     }
@@ -145,8 +144,8 @@ namespace TaskbarRPG
         public int Health { get; set; } = 100;
         public int MaxHealth { get; set; } = 100;
 
-        public WeaponItem EquippedSword { get; set; } = null!;
-        public WeaponItem EquippedBow { get; set; } = null!;
+        public WeaponItem? EquippedSword { get; set; } = null;
+        public WeaponItem? EquippedBow { get; set; } = null;
 
         public List<InventoryEntry> Inventory { get; set; } = new();
 
@@ -470,6 +469,9 @@ namespace TaskbarRPG
         }
     }
 
+    // ---------------------------------------------------------------------------
+    // Area transition fade overlay
+    // ---------------------------------------------------------------------------
     public class AreaTransition
     {
         private readonly Rectangle overlay;
@@ -550,6 +552,9 @@ namespace TaskbarRPG
         }
     }
 
+    // ---------------------------------------------------------------------------
+    // Scene object holders
+    // ---------------------------------------------------------------------------
     public class SpawnedZoneVisual
     {
         public VariableZone Zone = null!;
@@ -589,8 +594,12 @@ namespace TaskbarRPG
         public bool IsAlive = true;
     }
 
+    // ---------------------------------------------------------------------------
+    // Main window
+    // ---------------------------------------------------------------------------
     public partial class MainWindow : Window
     {
+        // Win32 constants
         private const int GWL_EXSTYLE = -20;
         private const int WS_EX_TRANSPARENT = 0x20;
         private const int WS_EX_TOOLWINDOW = 0x80;
@@ -626,6 +635,7 @@ namespace TaskbarRPG
         private const int VK_8 = 0x38;
         private const int VK_9 = 0x39;
 
+        // P/Invoke
         [DllImport("user32.dll")]
         private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
@@ -651,10 +661,7 @@ namespace TaskbarRPG
         private const uint ABM_GETTASKBARPOS = 0x00000005;
 
         [StructLayout(LayoutKind.Sequential)]
-        public struct RECT
-        {
-            public int left, top, right, bottom;
-        }
+        public struct RECT { public int left, top, right, bottom; }
 
         [StructLayout(LayoutKind.Sequential)]
         public struct APPBARDATA
@@ -679,11 +686,15 @@ namespace TaskbarRPG
 
         private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
 
+        // -----------------------------------------------------------------------
+        // Fields
+        // -----------------------------------------------------------------------
         private readonly Random rng = new Random();
 
         private IntPtr keyboardHook = IntPtr.Zero;
         private LowLevelKeyboardProc? keyboardProc;
 
+        // Input state
         private bool leftHeld = false;
         private bool rightHeld = false;
         private bool jumpHeld = false;
@@ -696,6 +707,7 @@ namespace TaskbarRPG
         private bool potionHeld = false;
 
         private readonly bool[] numberHeld = new bool[9];
+        private readonly bool[] numberHeldLastFrame = new bool[9];
 
         private bool jumpHeldLastFrame = false;
         private bool meleeHeldLastFrame = false;
@@ -705,8 +717,8 @@ namespace TaskbarRPG
         private bool statsHeldLastFrame = false;
         private bool mapHeldLastFrame = false;
         private bool potionHeldLastFrame = false;
-        private readonly bool[] numberHeldLastFrame = new bool[9];
 
+        // UI elements
         private DispatcherTimer timer = null!;
         private Rectangle player = null!;
         private Rectangle attackHitbox = null!;
@@ -724,15 +736,18 @@ namespace TaskbarRPG
         private TextBlock rightExitText = null!;
         private TextBlock statusText = null!;
 
+        // Game state
         private Area currentArea = null!;
         private Area? previousArea = null;
         private AreaTransition transition = null!;
+
         private readonly List<SpawnedZoneVisual> activeZoneVisuals = new();
         private readonly List<SpawnedEnemy> activeEnemies = new();
         private readonly List<ArrowProjectile> activeProjectiles = new();
 
         private readonly PlayerData playerData = new();
 
+        // Physics / layout
         private double playAreaHeight = 140;
         private double playerX = 100;
         private double playerY = 0;
@@ -748,6 +763,7 @@ namespace TaskbarRPG
         private bool facingRight = true;
         private double groundStripHeight = 14;
 
+        // Game state flags
         private bool controlsEnabled = false;
         private PanelMode panelMode = PanelMode.None;
 
@@ -763,6 +779,9 @@ namespace TaskbarRPG
         private const int PlayerDamageCooldownMax = 35;
         private int statusFramesRemaining = 0;
 
+        // -----------------------------------------------------------------------
+        // Constructor
+        // -----------------------------------------------------------------------
         public MainWindow()
         {
             InitializeComponent();
@@ -770,6 +789,9 @@ namespace TaskbarRPG
             Closed += MainWindow_Closed;
         }
 
+        // -----------------------------------------------------------------------
+        // Startup
+        // -----------------------------------------------------------------------
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
             InitializePlayerData();
@@ -803,6 +825,9 @@ namespace TaskbarRPG
 
         private void MainWindow_Closed(object? sender, EventArgs e)
         {
+            // Stop the game loop first so no further callbacks fire
+            timer?.Stop();
+
             if (keyboardHook != IntPtr.Zero)
             {
                 UnhookWindowsHookEx(keyboardHook);
@@ -810,6 +835,9 @@ namespace TaskbarRPG
             }
         }
 
+        // -----------------------------------------------------------------------
+        // Keyboard hook
+        // -----------------------------------------------------------------------
         private void InstallKeyboardHook()
         {
             keyboardProc = KeyboardHookCallback;
@@ -835,6 +863,7 @@ namespace TaskbarRPG
                     int vk = (int)kb.vkCode;
                     bool down = isKeyDown;
 
+                    // F8 toggles the game regardless of controlsEnabled
                     if (isKeyDown && vk == VK_F8)
                     {
                         Dispatcher.BeginInvoke(new Action(() =>
@@ -849,7 +878,7 @@ namespace TaskbarRPG
                             }
                         }));
 
-                        return (IntPtr)1;
+                        return (IntPtr)1; // block F8 from reaching other apps
                     }
 
                     if (controlsEnabled)
@@ -872,77 +901,28 @@ namespace TaskbarRPG
         {
             switch (vk)
             {
-                case VK_LEFT:
-                case VK_A:
-                    leftHeld = isDown;
-                    break;
-
-                case VK_RIGHT:
-                case VK_D:
-                    rightHeld = isDown;
-                    break;
-
+                case VK_LEFT: case VK_A: leftHeld = isDown; break;
+                case VK_RIGHT: case VK_D: rightHeld = isDown; break;
                 case VK_UP:
                 case VK_W:
                 case VK_SPACE:
-                    jumpHeld = isDown;
-                    break;
-
-                case VK_Z:
-                    meleeHeld = isDown;
-                    break;
-
-                case VK_X:
-                    fireHeld = isDown;
-                    break;
-
-                case VK_C:
-                    closeHeld = isDown;
-                    break;
-
-                case VK_F:
-                    fastTravelHeld = isDown;
-                    break;
-
-                case VK_E:
-                    statsHeld = isDown;
-                    break;
-
-                case VK_M:
-                    mapHeld = isDown;
-                    break;
-
-                case VK_OEM_2:
-                    potionHeld = isDown;
-                    break;
-
-                case VK_1:
-                    numberHeld[0] = isDown;
-                    break;
-                case VK_2:
-                    numberHeld[1] = isDown;
-                    break;
-                case VK_3:
-                    numberHeld[2] = isDown;
-                    break;
-                case VK_4:
-                    numberHeld[3] = isDown;
-                    break;
-                case VK_5:
-                    numberHeld[4] = isDown;
-                    break;
-                case VK_6:
-                    numberHeld[5] = isDown;
-                    break;
-                case VK_7:
-                    numberHeld[6] = isDown;
-                    break;
-                case VK_8:
-                    numberHeld[7] = isDown;
-                    break;
-                case VK_9:
-                    numberHeld[8] = isDown;
-                    break;
+                    jumpHeld = isDown; break;
+                case VK_Z: meleeHeld = isDown; break;
+                case VK_X: fireHeld = isDown; break;
+                case VK_C: closeHeld = isDown; break;
+                case VK_F: fastTravelHeld = isDown; break;
+                case VK_E: statsHeld = isDown; break;
+                case VK_M: mapHeld = isDown; break;
+                case VK_OEM_2: potionHeld = isDown; break;
+                case VK_1: numberHeld[0] = isDown; break;
+                case VK_2: numberHeld[1] = isDown; break;
+                case VK_3: numberHeld[2] = isDown; break;
+                case VK_4: numberHeld[3] = isDown; break;
+                case VK_5: numberHeld[4] = isDown; break;
+                case VK_6: numberHeld[5] = isDown; break;
+                case VK_7: numberHeld[6] = isDown; break;
+                case VK_8: numberHeld[7] = isDown; break;
+                case VK_9: numberHeld[8] = isDown; break;
             }
         }
 
@@ -981,198 +961,87 @@ namespace TaskbarRPG
 
         private void ResetHeldInputs()
         {
-            leftHeld = false;
-            rightHeld = false;
-            jumpHeld = false;
-            meleeHeld = false;
-            fireHeld = false;
-            closeHeld = false;
-            fastTravelHeld = false;
-            statsHeld = false;
-            mapHeld = false;
-            potionHeld = false;
+            leftHeld = rightHeld = jumpHeld = meleeHeld = fireHeld =
+            closeHeld = fastTravelHeld = statsHeld = mapHeld = potionHeld = false;
+
+            jumpHeldLastFrame = meleeHeldLastFrame = fireHeldLastFrame =
+            closeHeldLastFrame = fastTravelHeldLastFrame = statsHeldLastFrame =
+            mapHeldLastFrame = potionHeldLastFrame = false;
 
             for (int i = 0; i < numberHeld.Length; i++)
             {
                 numberHeld[i] = false;
                 numberHeldLastFrame[i] = false;
             }
-
-            jumpHeldLastFrame = false;
-            meleeHeldLastFrame = false;
-            fireHeldLastFrame = false;
-            closeHeldLastFrame = false;
-            fastTravelHeldLastFrame = false;
-            statsHeldLastFrame = false;
-            mapHeldLastFrame = false;
-            potionHeldLastFrame = false;
         }
 
-        private void SetupTransition()
-        {
-            transition = new AreaTransition(GameCanvas, OnTransitionMidpoint);
-        }
-
-        private void LoadArea(AreaType type, TransitionDirection entryDir, bool animate = true)
-        {
-            if (animate)
-            {
-                transition.Start(type, entryDir);
-            }
-            else
-            {
-                ApplyArea(type);
-
-                if (entryDir == TransitionDirection.Right)
-                    playerX = 10;
-                else
-                    playerX = Width - playerWidth - 10;
-
-                velocityX = 0;
-                DrawPlayer();
-                DrawAttackHitbox();
-            }
-        }
-
-        private void OnTransitionMidpoint(AreaType type, TransitionDirection dir)
-        {
-            ApplyArea(type);
-
-            if (dir == TransitionDirection.Right)
-                playerX = 10;
-            else
-                playerX = Width - playerWidth - 10;
-
-            velocityX = 0;
-            CloseAllPanels();
-        }
-
-        private void ApplyArea(AreaType type)
-        {
-            previousArea = currentArea;
-            currentArea = AreaDefinitions.Get(type);
-
-            if (currentArea.Type == AreaType.Town && (previousArea == null || previousArea.Type != AreaType.Town))
-                RefreshTownShops();
-
-            groundRect.Fill = new SolidColorBrush(currentArea.GroundColor);
-            ClearAreaZoneVisuals();
-            ClearEnemies();
-            ClearProjectiles();
-            SpawnAreaZones(currentArea);
-            SpawnEnemies(currentArea);
-            UpdateExitTexts();
-        }
-
-        private void RefreshTownShops()
-        {
-            foreach (var zone in AreaDefinitions.Get(AreaType.Town).Zones)
-            {
-                if (zone.Content is not ShopZoneContent shop)
-                    continue;
-
-                shop.Stock.Clear();
-
-                if (shop.ShopType == ShopType.Sword)
-                {
-                    for (int i = 0; i < 3; i++)
-                    {
-                        var sword = ItemFactory.CreateRandomSword(rng);
-                        shop.Stock.Add(new ShopListing
-                        {
-                            Item = sword,
-                            Quantity = 1,
-                            Price = sword.BasePrice
-                        });
-                    }
-                }
-                else if (shop.ShopType == ShopType.Bow)
-                {
-                    for (int i = 0; i < 2; i++)
-                    {
-                        var bow = ItemFactory.CreateRandomBow(rng);
-                        shop.Stock.Add(new ShopListing
-                        {
-                            Item = bow,
-                            Quantity = 1,
-                            Price = bow.BasePrice
-                        });
-                    }
-
-                    var arrow = ItemFactory.CreateArrowItem();
-                    shop.Stock.Add(new ShopListing
-                    {
-                        Item = arrow,
-                        Quantity = 5,
-                        Price = 5
-                    });
-                }
-                else if (shop.ShopType == ShopType.Healing)
-                {
-                    var potion = ItemFactory.CreatePotion();
-                    shop.Stock.Add(new ShopListing
-                    {
-                        Item = potion,
-                        Quantity = 1,
-                        Price = potion.BasePrice
-                    });
-                    shop.Stock.Add(new ShopListing
-                    {
-                        Item = potion,
-                        Quantity = 2,
-                        Price = potion.BasePrice * 2
-                    });
-                }
-            }
-        }
-
+        // -----------------------------------------------------------------------
+        // Window positioning — DPI-aware fix
+        // -----------------------------------------------------------------------
         private void PositionAboveTaskbar()
         {
             APPBARDATA data = new APPBARDATA();
             data.cbSize = Marshal.SizeOf(typeof(APPBARDATA));
             int result = SHAppBarMessage(ABM_GETTASKBARPOS, ref data);
 
+            double screenWidth = SystemParameters.PrimaryScreenWidth;
+            double screenHeight = SystemParameters.PrimaryScreenHeight;
+
+            // Convert physical RECT pixels → logical (WPF) pixels using DPI scale
+            var source = PresentationSource.FromVisual(this);
+            double dpiScaleX = source?.CompositionTarget?.TransformFromDevice.M11 ?? 1.0;
+            double dpiScaleY = source?.CompositionTarget?.TransformFromDevice.M22 ?? 1.0;
+
             if (result != 0)
             {
-                double screenWidth = SystemParameters.PrimaryScreenWidth;
-                double screenHeight = SystemParameters.PrimaryScreenHeight;
+                double left = data.rc.left * dpiScaleX;
+                double top = data.rc.top * dpiScaleY;
+                double right = data.rc.right * dpiScaleX;
+                double bottom = data.rc.bottom * dpiScaleY;
 
-                int left = data.rc.left, top = data.rc.top, right = data.rc.right, bottom = data.rc.bottom;
+                double taskbarWidth = right - left;
+                double taskbarHeight = bottom - top;
 
-                if (top > 0 && bottom == screenHeight)
+                if (taskbarWidth >= screenWidth * 0.5) // Horizontal taskbar
                 {
-                    Left = 0;
-                    Top = top - playAreaHeight;
-                    Width = screenWidth;
-                    Height = playAreaHeight;
+                    if (top >= screenHeight * 0.5) // Bottom (most common)
+                    {
+                        Left = 0;
+                        Top = top - playAreaHeight;
+                        Width = screenWidth;
+                        Height = playAreaHeight;
+                    }
+                    else // Top taskbar
+                    {
+                        Left = 0;
+                        Top = bottom;
+                        Width = screenWidth;
+                        Height = playAreaHeight;
+                    }
                 }
-                else if (top == 0 && bottom < screenHeight)
+                else // Vertical taskbar
                 {
-                    Left = 0;
-                    Top = bottom;
-                    Width = screenWidth;
-                    Height = playAreaHeight;
-                }
-                else if (left == 0 && right < screenWidth)
-                {
-                    Left = right;
-                    Top = 0;
-                    Width = playAreaHeight;
-                    Height = screenHeight;
-                }
-                else
-                {
-                    Left = left - playAreaHeight;
-                    Top = 0;
-                    Width = playAreaHeight;
-                    Height = screenHeight;
+                    if (left < screenWidth * 0.5) // Left side
+                    {
+                        Left = right;
+                        Top = 0;
+                        Width = screenWidth - right;
+                        Height = screenHeight;
+                    }
+                    else // Right side
+                    {
+                        Left = 0;
+                        Top = 0;
+                        Width = left;
+                        Height = screenHeight;
+                    }
                 }
             }
-            else
+            else // Fallback: assume bottom taskbar at default height
             {
                 Left = 0;
-                Top = SystemParameters.PrimaryScreenHeight - 80 - playAreaHeight;
-                Width = SystemParameters.PrimaryScreenWidth;
+                Top = screenHeight - 80 - playAreaHeight;
+                Width = screenWidth;
                 Height = playAreaHeight;
             }
         }
@@ -1184,6 +1053,9 @@ namespace TaskbarRPG
             SetWindowLong(hwnd, GWL_EXSTYLE, extStyle | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW);
         }
 
+        // -----------------------------------------------------------------------
+        // UI creation
+        // -----------------------------------------------------------------------
         private void CreateBackground()
         {
             groundRect = new Rectangle
@@ -1257,17 +1129,15 @@ namespace TaskbarRPG
             Panel.SetZIndex(statusText, 70);
         }
 
-
         private void CreateMainPanel()
         {
             panelText = new TextBlock
             {
                 Foreground = Brushes.White,
-                FontSize = 13,
+                FontSize = 10,
                 FontFamily = new FontFamily("Consolas"),
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(10),
-                MaxWidth = 700
+                TextWrapping = TextWrapping.NoWrap,
+                Margin = new Thickness(5, 3, 5, 3),
             };
 
             panelBorder = new Border
@@ -1276,7 +1146,7 @@ namespace TaskbarRPG
                 Background = new SolidColorBrush(Color.FromArgb(228, 18, 18, 18)),
                 BorderBrush = Brushes.Gold,
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(6),
+                CornerRadius = new CornerRadius(4),
                 Child = panelText,
                 Visibility = Visibility.Hidden,
             };
@@ -1285,7 +1155,23 @@ namespace TaskbarRPG
             Panel.SetZIndex(panelBorder, 60);
 
             Canvas.SetLeft(panelBorder, 300);
-            Canvas.SetTop(panelBorder, 8);
+            Canvas.SetTop(panelBorder, 2);
+        }
+
+        // Shrink font until all lines fit within the window height.
+        // Must be called after panelText.Text is set so WPF can measure real content.
+        private void FitPanelText()
+        {
+            double maxH = Height - 6;
+            double maxW = panelBorder.Width - 12;
+
+            for (double size = 10.0; size >= 5.5; size -= 0.5)
+            {
+                panelText.FontSize = size;
+                panelText.Measure(new Size(maxW, double.PositiveInfinity));
+                if (panelText.DesiredSize.Height <= maxH)
+                    break;
+            }
         }
 
         private void CreateEdgeTexts()
@@ -1321,7 +1207,8 @@ namespace TaskbarRPG
             {
                 var leftArea = AreaDefinitions.Get(currentArea.LeftExit.Value);
                 leftExitText.Text = $"< {leftArea.Name} (Lv {leftArea.LevelRequirement})";
-                leftExitText.Foreground = playerData.Level >= leftArea.LevelRequirement ? Brushes.White : Brushes.OrangeRed;
+                leftExitText.Foreground = playerData.Level >= leftArea.LevelRequirement
+                    ? Brushes.White : Brushes.OrangeRed;
             }
             else
             {
@@ -1332,7 +1219,8 @@ namespace TaskbarRPG
             {
                 var rightArea = AreaDefinitions.Get(currentArea.RightExit.Value);
                 rightExitText.Text = $"{rightArea.Name} (Lv {rightArea.LevelRequirement}) >";
-                rightExitText.Foreground = playerData.Level >= rightArea.LevelRequirement ? Brushes.White : Brushes.OrangeRed;
+                rightExitText.Foreground = playerData.Level >= rightArea.LevelRequirement
+                    ? Brushes.White : Brushes.OrangeRed;
             }
             else
             {
@@ -1371,6 +1259,14 @@ namespace TaskbarRPG
 
             DrawPlayer();
             DrawAttackHitbox();
+        }
+
+        // -----------------------------------------------------------------------
+        // Game loop
+        // -----------------------------------------------------------------------
+        private void SetupTransition()
+        {
+            transition = new AreaTransition(GameCanvas, OnTransitionMidpoint);
         }
 
         private void StartGameLoop()
@@ -1438,15 +1334,14 @@ namespace TaskbarRPG
             Canvas.SetTop(groundRect, Height - groundStripHeight);
             groundY = Height - groundStripHeight - playerHeight;
 
-            double panelTop = 8;
             double sideMargin = 20;
             double maxPanelWidth = Math.Max(260, Width - (sideMargin * 2));
 
             panelBorder.Width = Math.Min(720, maxPanelWidth);
-            panelText.MaxWidth = panelBorder.Width - 20;
+            panelBorder.MaxHeight = Height - 4;   // never overflow the window
 
             Canvas.SetLeft(panelBorder, Math.Max(sideMargin, (Width - panelBorder.Width) / 2));
-            Canvas.SetTop(panelBorder, panelTop);
+            Canvas.SetTop(panelBorder, 2);
 
             Canvas.SetLeft(leftExitText, 10);
             Canvas.SetTop(leftExitText, 12);
@@ -1458,6 +1353,9 @@ namespace TaskbarRPG
             Canvas.SetTop(statusText, Math.Max(4, Height - 28));
         }
 
+        // -----------------------------------------------------------------------
+        // Input handling
+        // -----------------------------------------------------------------------
         private void HandleInput()
         {
             bool jumpPressedThisFrame = jumpHeld && !jumpHeldLastFrame;
@@ -1483,32 +1381,14 @@ namespace TaskbarRPG
                 return;
             }
 
-            if (fastPressedThisFrame)
-            {
-                TogglePanel(PanelMode.FastTravel);
-                CacheLastFrameInput();
-                return;
-            }
-
-            if (statsPressedThisFrame)
-            {
-                TogglePanel(PanelMode.Stats);
-                CacheLastFrameInput();
-                return;
-            }
-
-            if (mapPressedThisFrame)
-            {
-                TogglePanel(PanelMode.Map);
-                CacheLastFrameInput();
-                return;
-            }
+            if (fastPressedThisFrame) { TogglePanel(PanelMode.FastTravel); CacheLastFrameInput(); return; }
+            if (statsPressedThisFrame) { TogglePanel(PanelMode.Stats); CacheLastFrameInput(); return; }
+            if (mapPressedThisFrame) { TogglePanel(PanelMode.Map); CacheLastFrameInput(); return; }
 
             if (potionPressedThisFrame && panelMode == PanelMode.None)
-            {
                 UsePotion();
-            }
 
+            // Panel-specific input routing
             if (panelMode == PanelMode.FastTravel)
             {
                 HandleFastTravelSelection();
@@ -1516,7 +1396,9 @@ namespace TaskbarRPG
                 return;
             }
 
-            if (panelMode == PanelMode.ShopMain || panelMode == PanelMode.ShopBuy || panelMode == PanelMode.ShopSell)
+            if (panelMode == PanelMode.ShopMain ||
+                panelMode == PanelMode.ShopBuy ||
+                panelMode == PanelMode.ShopSell)
             {
                 HandleShopSelection();
                 CacheLastFrameInput();
@@ -1544,17 +1426,10 @@ namespace TaskbarRPG
                 return;
             }
 
+            // Free movement
             velocityX = 0;
-            if (leftHeld && !rightHeld)
-            {
-                velocityX = -moveSpeed;
-                facingRight = false;
-            }
-            if (rightHeld && !leftHeld)
-            {
-                velocityX = moveSpeed;
-                facingRight = true;
-            }
+            if (leftHeld && !rightHeld) { velocityX = -moveSpeed; facingRight = false; }
+            if (rightHeld && !leftHeld) { velocityX = moveSpeed; facingRight = true; }
 
             if (jumpPressedThisFrame && isOnGround)
             {
@@ -1565,21 +1440,14 @@ namespace TaskbarRPG
             if (meleePressedThisFrame)
             {
                 var interactable = FindInteractableZoneInRange();
-
                 if (interactable != null)
-                {
                     InteractWithZone(interactable);
-                }
                 else if (!isAttacking)
-                {
                     StartMeleeAttack();
-                }
             }
 
             if (firePressedThisFrame && panelMode == PanelMode.None)
-            {
                 FireBow();
-            }
 
             CacheLastFrameInput();
         }
@@ -1599,6 +1467,9 @@ namespace TaskbarRPG
                 numberHeldLastFrame[i] = numberHeld[i];
         }
 
+        // -----------------------------------------------------------------------
+        // Panel management
+        // -----------------------------------------------------------------------
         private void TogglePanel(PanelMode mode)
         {
             if (panelMode == mode)
@@ -1622,101 +1493,24 @@ namespace TaskbarRPG
             activeShop = null;
         }
 
-        private void HandleStatsSelection()
-        {
-            int index = GetPressedNumberIndex();
-            if (index < 0)
-                return;
-
-            int number = index + 1;
-
-            if (number == 1)
-            {
-                panelMode = PanelMode.EquipSword;
-                RenderCurrentPanel();
-            }
-            else if (number == 2)
-            {
-                panelMode = PanelMode.EquipBow;
-                RenderCurrentPanel();
-            }
-        }
-
-        private void HandleEquipSelection()
-        {
-            int index = GetPressedNumberIndex();
-            if (index < 0)
-                return;
-
-            int number = index + 1;
-
-            if (number == 9)
-            {
-                panelMode = PanelMode.Stats;
-                RenderCurrentPanel();
-                return;
-            }
-
-            if (panelMode == PanelMode.EquipSword)
-            {
-                var swords = playerData.Inventory
-                    .Where(i => i.Item is WeaponItem w && w.WeaponCategory == WeaponCategory.Sword)
-                    .ToList();
-
-                if (index < swords.Count)
-                {
-                    playerData.EquippedSword = (WeaponItem)swords[index].Item;
-                    ShowStatus($"Equipped {playerData.EquippedSword.Name}", 60);
-                    RenderCurrentPanel();
-                }
-                return;
-            }
-
-            if (panelMode == PanelMode.EquipBow)
-            {
-                var bows = playerData.Inventory
-                    .Where(i => i.Item is WeaponItem w && w.WeaponCategory == WeaponCategory.Bow)
-                    .ToList();
-
-                if (index < bows.Count)
-                {
-                    playerData.EquippedBow = (WeaponItem)bows[index].Item;
-                    ShowStatus($"Equipped {playerData.EquippedBow.Name}", 60);
-                    RenderCurrentPanel();
-                }
-            }
-        }
         private void RenderCurrentPanel()
         {
             switch (panelMode)
             {
-                case PanelMode.FastTravel:
-                    RenderFastTravelPanel();
-                    break;
-                case PanelMode.Stats:
-                    RenderStatsPanel();
-                    break;
-                case PanelMode.Map:
-                    RenderMapPanel();
-                    break;
-                case PanelMode.ShopMain:
-                    RenderShopMainPanel();
-                    break;
-                case PanelMode.ShopBuy:
-                    RenderShopBuyPanel();
-                    break;
-                case PanelMode.ShopSell:
-                    RenderShopSellPanel();
-                    break;
-                case PanelMode.EquipSword:
-                    RenderEquipSwordPanel();
-                    break;
-                case PanelMode.EquipBow:
-                    RenderEquipBowPanel();
-                    break;
+                case PanelMode.FastTravel: RenderFastTravelPanel(); break;
+                case PanelMode.Stats: RenderStatsPanel(); break;
+                case PanelMode.Map: RenderMapPanel(); break;
+                case PanelMode.ShopMain: RenderShopMainPanel(); break;
+                case PanelMode.ShopBuy: RenderShopBuyPanel(); break;
+                case PanelMode.ShopSell: RenderShopSellPanel(); break;
+                case PanelMode.EquipSword: RenderEquipSwordPanel(); break;
+                case PanelMode.EquipBow: RenderEquipBowPanel(); break;
             }
         }
 
+        // -----------------------------------------------------------------------
+        // Panel renderers
+        // -----------------------------------------------------------------------
         private void RenderFastTravelPanel()
         {
             var lines = new List<string>
@@ -1731,124 +1525,50 @@ namespace TaskbarRPG
             {
                 var area = AreaDefinitions.Ordered[i];
                 string marker = area.Type == currentArea.Type ? "  <== CURRENT" : "";
-                string lockText = playerData.Level >= area.LevelRequirement ? "" : $" [LOCKED Lv {area.LevelRequirement}]";
+                string lockText = playerData.Level >= area.LevelRequirement
+                    ? "" : $" [LOCKED Lv {area.LevelRequirement}]";
                 lines.Add($"{i + 1}. {area.Name}{lockText}{marker}");
             }
 
             lines.Add("");
             lines.Add("C = close");
-
             panelText.Text = string.Join(Environment.NewLine, lines);
+            FitPanelText();
         }
 
-        private void RenderEquipSwordPanel()
-        {
-            var swords = playerData.Inventory
-                .Where(i => i.Item is WeaponItem w && w.WeaponCategory == WeaponCategory.Sword)
-                .ToList();
-
-            var lines = new List<string>
-    {
-        "EQUIP SWORD",
-        "",
-        $"Current: {playerData.EquippedSword.GetDisplayText()}",
-        ""
-    };
-
-            if (swords.Count == 0)
-            {
-                lines.Add("No swords owned.");
-            }
-            else
-            {
-                for (int i = 0; i < swords.Count && i < 8; i++)
-                {
-                    var weapon = (WeaponItem)swords[i].Item;
-                    string marker = ReferenceEquals(weapon, playerData.EquippedSword) ? "  <== EQUIPPED" : "";
-                    lines.Add($"{i + 1}. {weapon.GetDisplayText()}{marker}");
-                }
-            }
-
-            lines.Add("");
-            lines.Add("9. Back");
-            lines.Add("C = close");
-
-            panelText.Text = string.Join(Environment.NewLine, lines);
-        }
-
-        private void RenderEquipBowPanel()
-        {
-            var bows = playerData.Inventory
-                .Where(i => i.Item is WeaponItem w && w.WeaponCategory == WeaponCategory.Bow)
-                .ToList();
-
-            var lines = new List<string>
-    {
-        "EQUIP BOW",
-        "",
-        $"Current: {playerData.EquippedBow.GetDisplayText()}",
-        ""
-    };
-
-            if (bows.Count == 0)
-            {
-                lines.Add("No bows owned.");
-            }
-            else
-            {
-                for (int i = 0; i < bows.Count && i < 8; i++)
-                {
-                    var weapon = (WeaponItem)bows[i].Item;
-                    string marker = ReferenceEquals(weapon, playerData.EquippedBow) ? "  <== EQUIPPED" : "";
-                    lines.Add($"{i + 1}. {weapon.GetDisplayText()}{marker}");
-                }
-            }
-
-            lines.Add("");
-            lines.Add("9. Back");
-            lines.Add("C = close");
-
-            panelText.Text = string.Join(Environment.NewLine, lines);
-        }
         private void RenderStatsPanel()
         {
+            string swordText = playerData.EquippedSword?.GetDisplayText() ?? "None";
+            string bowText = playerData.EquippedBow?.GetDisplayText() ?? "None";
             string items = GetInventorySummary();
 
             panelText.Text =
-                "PLAYER STATS\n\n" +
-                $"Level: {playerData.Level}\n" +
-                $"XP: {playerData.Experience}/{playerData.NextLevelXp}\n" +
-                $"Health: {playerData.Health}/{playerData.MaxHealth}\n" +
-                $"Gold: {playerData.Gold}\n" +
-                $"Base Damage: {playerData.BaseDamage}\n" +
-                $"Sword: {playerData.EquippedSword.GetDisplayText()}\n" +
-                $"Bow: {playerData.EquippedBow.GetDisplayText()}\n" +
-                $"Location: {currentArea.Name}\n" +
-                $"Items: {items}\n\n" +
-                "1. Equip Sword\n" +
-                "2. Equip Bow\n\n" +
-                "Use number keys.\n" +
-                "C = close";
+                "PLAYER STATS\n" +
+                $"Lv:{playerData.Level}  XP:{playerData.Experience}/{playerData.NextLevelXp}  HP:{playerData.Health}/{playerData.MaxHealth}\n" +
+                $"Gold:{playerData.Gold}  DMG:{playerData.BaseDamage}  Loc:{currentArea.Name}\n" +
+                $"Sword: {swordText}\n" +
+                $"Bow:   {bowText}\n" +
+                $"Items: {items}\n" +
+                "---\n" +
+                "1.Equip Sword  2.Equip Bow  C=close";
+            FitPanelText();
         }
 
         private void RenderMapPanel()
         {
             var ordered = AreaDefinitions.Ordered;
             int currentIndex = ordered.FindIndex(a => a.Type == currentArea.Type);
-
             string[] names = ordered.Select(a => $"{a.Name}(Lv{a.LevelRequirement})").ToArray();
             string mapLine = string.Join(" -- ", names);
 
-            List<int> centers = new();
+            // Build character-position lookup for marker arrows
+            var centers = new List<int>();
             int cursor = 0;
             for (int i = 0; i < names.Length; i++)
             {
-                int start = cursor;
-                int len = names[i].Length;
-                centers.Add(start + (len / 2));
-                cursor += len;
-                if (i < names.Length - 1)
-                    cursor += 4;
+                centers.Add(cursor + names[i].Length / 2);
+                cursor += names[i].Length;
+                if (i < names.Length - 1) cursor += 4; // " -- "
             }
 
             char[] markerLine = new string(' ', mapLine.Length).ToCharArray();
@@ -1857,49 +1577,36 @@ namespace TaskbarRPG
             if (currentIndex >= 0 && currentIndex < centers.Count)
             {
                 int pos = centers[currentIndex];
-                if (pos >= 0 && pos < markerLine.Length)
-                    markerLine[pos] = '^';
-
                 bool pulseOn = Math.Sin(mapPulseTime) > 0;
-                if (pos >= 0 && pos < pulseLine.Length)
-                    pulseLine[pos] = pulseOn ? '*' : 'o';
+
+                if (pos >= 0 && pos < markerLine.Length) markerLine[pos] = '^';
+                if (pos >= 0 && pos < pulseLine.Length) pulseLine[pos] = pulseOn ? '*' : 'o';
             }
 
             panelText.Text =
-                "WORLD MAP\n\n" +
+                "WORLD MAP\n" +
                 new string(markerLine) + "\n" +
                 mapLine + "\n" +
-                new string(pulseLine) + "\n\n" +
-                $"Current Area: {currentArea.Name}\n\n" +
-                "C = close";
+                new string(pulseLine) + "\n" +
+                $"Area: {currentArea.Name}  C=close";
+            FitPanelText();
         }
 
         private void RenderShopMainPanel()
         {
-            if (activeShop == null)
-            {
-                CloseAllPanels();
-                return;
-            }
+            if (activeShop == null) { CloseAllPanels(); return; }
 
             panelText.Text =
-                $"{activeShop.NpcName}\n\n" +
-                $"Welcome to the {activeShop.DisplayName}.\n\n" +
-                $"Gold: {playerData.Gold}\n\n" +
-                "1. Buy\n" +
-                "2. Sell\n" +
-                "3. Leave\n\n" +
-                "Use number keys.\n" +
-                "C = close";
+                $"{activeShop.NpcName} - {activeShop.DisplayName}\n" +
+                $"Gold: {playerData.Gold}\n" +
+                "---\n" +
+                "1.Buy  2.Sell  3.Leave  C=close";
+            FitPanelText();
         }
 
         private void RenderShopBuyPanel()
         {
-            if (activeShop == null)
-            {
-                CloseAllPanels();
-                return;
-            }
+            if (activeShop == null) { CloseAllPanels(); return; }
 
             var lines = new List<string>
             {
@@ -1912,21 +1619,15 @@ namespace TaskbarRPG
             for (int i = 0; i < activeShop.Stock.Count && i < 8; i++)
                 lines.Add($"{i + 1}. {activeShop.Stock[i].GetDisplayText()}");
 
-            lines.Add("");
-            lines.Add("Press number to buy.");
-            lines.Add("9. Back");
-            lines.Add("C = close");
-
+            lines.Add("---");
+            lines.Add("# to buy  9=Back  C=close");
             panelText.Text = string.Join(Environment.NewLine, lines);
+            FitPanelText();
         }
 
         private void RenderShopSellPanel()
         {
-            if (activeShop == null)
-            {
-                CloseAllPanels();
-                return;
-            }
+            if (activeShop == null) { CloseAllPanels(); return; }
 
             var sellable = GetSellableInventory();
             var lines = new List<string>
@@ -1952,50 +1653,152 @@ namespace TaskbarRPG
                 }
             }
 
-            lines.Add("");
-            lines.Add("Press number to sell one.");
-            lines.Add("9. Back");
-            lines.Add("C = close");
-
+            lines.Add("---");
+            lines.Add("# to sell  9=Back  C=close");
             panelText.Text = string.Join(Environment.NewLine, lines);
+            FitPanelText();
         }
 
+        private void RenderEquipSwordPanel()
+        {
+            var swords = playerData.Inventory
+                .Where(i => i.Item is WeaponItem w && w.WeaponCategory == WeaponCategory.Sword)
+                .ToList();
+
+            string currentDisplay = playerData.EquippedSword?.GetDisplayText() ?? "None";
+            var lines = new List<string>
+            {
+                $"EQUIP SWORD  (now:{currentDisplay})",
+                ""
+            };
+
+            if (swords.Count == 0)
+                lines.Add("No swords owned.");
+            else
+                for (int i = 0; i < swords.Count && i < 8; i++)
+                {
+                    var weapon = (WeaponItem)swords[i].Item;
+                    string marker = ReferenceEquals(weapon, playerData.EquippedSword) ? " *" : "";
+                    lines.Add($"{i + 1}.{weapon.GetDisplayText()}{marker}");
+                }
+
+            lines.Add("---");
+            lines.Add("# to equip  9=Back  C=close");
+            panelText.Text = string.Join(Environment.NewLine, lines);
+            FitPanelText();
+        }
+
+        private void RenderEquipBowPanel()
+        {
+            var bows = playerData.Inventory
+                .Where(i => i.Item is WeaponItem w && w.WeaponCategory == WeaponCategory.Bow)
+                .ToList();
+
+            string currentDisplay = playerData.EquippedBow?.GetDisplayText() ?? "None";
+            var lines = new List<string>
+            {
+                $"EQUIP BOW  (now:{currentDisplay})",
+                ""
+            };
+
+            if (bows.Count == 0)
+                lines.Add("No bows owned.");
+            else
+                for (int i = 0; i < bows.Count && i < 8; i++)
+                {
+                    var weapon = (WeaponItem)bows[i].Item;
+                    string marker = ReferenceEquals(weapon, playerData.EquippedBow) ? " *" : "";
+                    lines.Add($"{i + 1}.{weapon.GetDisplayText()}{marker}");
+                }
+
+            lines.Add("---");
+            lines.Add("# to equip  9=Back  C=close");
+            panelText.Text = string.Join(Environment.NewLine, lines);
+            FitPanelText();
+        }
+
+        // -----------------------------------------------------------------------
+        // Panel input handlers
+        // -----------------------------------------------------------------------
         private int GetPressedNumberIndex()
         {
             for (int i = 0; i < numberHeld.Length; i++)
-            {
                 if (numberHeld[i] && !numberHeldLastFrame[i])
                     return i;
-            }
-
             return -1;
         }
 
         private void HandleFastTravelSelection()
         {
             int index = GetPressedNumberIndex();
-            if (index < 0)
+            if (index < 0 || index >= AreaDefinitions.Ordered.Count)
                 return;
 
-            if (index < AreaDefinitions.Ordered.Count)
+            var target = AreaDefinitions.Ordered[index];
+
+            if (playerData.Level < target.LevelRequirement)
             {
-                var target = AreaDefinitions.Ordered[index];
+                ShowStatus($"Need Lv {target.LevelRequirement} for {target.Name}", 80);
+                return;
+            }
 
-                if (playerData.Level < target.LevelRequirement)
+            if (target.Type == currentArea.Type)
+                return;
+
+            int currentIndex = AreaDefinitions.Ordered.FindIndex(a => a.Type == currentArea.Type);
+            TransitionDirection dir = index >= currentIndex
+                ? TransitionDirection.Right
+                : TransitionDirection.Left;
+
+            CloseAllPanels();
+            LoadArea(target.Type, dir, animate: true);
+        }
+
+        private void HandleStatsSelection()
+        {
+            int index = GetPressedNumberIndex();
+            if (index < 0) return;
+
+            if (index == 0) { panelMode = PanelMode.EquipSword; RenderCurrentPanel(); }
+            else if (index == 1) { panelMode = PanelMode.EquipBow; RenderCurrentPanel(); }
+        }
+
+        private void HandleEquipSelection()
+        {
+            int index = GetPressedNumberIndex();
+            if (index < 0) return;
+
+            if (index == 8) // key 9 = back
+            {
+                panelMode = PanelMode.Stats;
+                RenderCurrentPanel();
+                return;
+            }
+
+            if (panelMode == PanelMode.EquipSword)
+            {
+                var swords = playerData.Inventory
+                    .Where(i => i.Item is WeaponItem w && w.WeaponCategory == WeaponCategory.Sword)
+                    .ToList();
+
+                if (index < swords.Count)
                 {
-                    ShowStatus($"Need Lv {target.LevelRequirement} for {target.Name}", 80);
-                    return;
+                    playerData.EquippedSword = (WeaponItem)swords[index].Item;
+                    ShowStatus($"Equipped {playerData.EquippedSword.Name}", 60);
+                    RenderCurrentPanel();
                 }
+            }
+            else if (panelMode == PanelMode.EquipBow)
+            {
+                var bows = playerData.Inventory
+                    .Where(i => i.Item is WeaponItem w && w.WeaponCategory == WeaponCategory.Bow)
+                    .ToList();
 
-                if (target.Type != currentArea.Type)
+                if (index < bows.Count)
                 {
-                    int currentIndex = AreaDefinitions.Ordered.FindIndex(a => a.Type == currentArea.Type);
-                    TransitionDirection dir = index >= currentIndex
-                        ? TransitionDirection.Right
-                        : TransitionDirection.Left;
-
-                    CloseAllPanels();
-                    LoadArea(target.Type, dir, animate: true);
+                    playerData.EquippedBow = (WeaponItem)bows[index].Item;
+                    ShowStatus($"Equipped {playerData.EquippedBow.Name}", 60);
+                    RenderCurrentPanel();
                 }
             }
         }
@@ -2003,39 +1806,21 @@ namespace TaskbarRPG
         private void HandleShopSelection()
         {
             int index = GetPressedNumberIndex();
-            if (index < 0 || activeShop == null)
-                return;
+            if (index < 0 || activeShop == null) return;
 
             int number = index + 1;
 
             if (panelMode == PanelMode.ShopMain)
             {
-                if (number == 1)
-                {
-                    panelMode = PanelMode.ShopBuy;
-                    RenderCurrentPanel();
-                }
-                else if (number == 2)
-                {
-                    panelMode = PanelMode.ShopSell;
-                    RenderCurrentPanel();
-                }
-                else if (number == 3)
-                {
-                    CloseAllPanels();
-                }
+                if (number == 1) { panelMode = PanelMode.ShopBuy; RenderCurrentPanel(); }
+                else if (number == 2) { panelMode = PanelMode.ShopSell; RenderCurrentPanel(); }
+                else if (number == 3) { CloseAllPanels(); }
                 return;
             }
 
             if (panelMode == PanelMode.ShopBuy)
             {
-                if (number == 9)
-                {
-                    panelMode = PanelMode.ShopMain;
-                    RenderCurrentPanel();
-                    return;
-                }
-
+                if (number == 9) { panelMode = PanelMode.ShopMain; RenderCurrentPanel(); return; }
                 if (index < activeShop.Stock.Count)
                 {
                     BuyShopListing(activeShop.Stock[index]);
@@ -2046,13 +1831,7 @@ namespace TaskbarRPG
 
             if (panelMode == PanelMode.ShopSell)
             {
-                if (number == 9)
-                {
-                    panelMode = PanelMode.ShopMain;
-                    RenderCurrentPanel();
-                    return;
-                }
-
+                if (number == 9) { panelMode = PanelMode.ShopMain; RenderCurrentPanel(); return; }
                 var sellable = GetSellableInventory();
                 if (index < sellable.Count)
                 {
@@ -2062,45 +1841,88 @@ namespace TaskbarRPG
             }
         }
 
-        private void BuyShopListing(ShopListing listing)
+        // -----------------------------------------------------------------------
+        // Area management
+        // -----------------------------------------------------------------------
+        private void LoadArea(AreaType type, TransitionDirection entryDir, bool animate = true)
         {
-            if (playerData.Gold < listing.Price)
+            if (animate)
             {
-                ShowStatus("Not enough gold", 60);
-                return;
-            }
-
-            playerData.Gold -= listing.Price;
-
-            if (listing.Item is WeaponItem weapon)
-            {
-                var purchasedWeapon = CloneWeapon(weapon);
-                AddItemToInventory(purchasedWeapon, 1);
-
-                if (weapon.WeaponCategory == WeaponCategory.Sword)
-                {
-                    playerData.EquippedSword = purchasedWeapon;
-                    ShowStatus($"Bought and equipped {purchasedWeapon.Name}", 70);
-                }
-                else
-                {
-                    playerData.EquippedBow = purchasedWeapon;
-                    ShowStatus($"Bought and equipped {purchasedWeapon.Name}", 70);
-                }
+                transition.Start(type, entryDir);
             }
             else
             {
-                AddItemToInventory(CloneItem(listing.Item), listing.Quantity);
-                ShowStatus($"Bought {listing.Item.Name} x{listing.Quantity}", 70);
+                ApplyArea(type);
+                playerX = entryDir == TransitionDirection.Right ? 10 : Width - playerWidth - 10;
+                velocityX = 0;
+                DrawPlayer();
+                DrawAttackHitbox();
             }
         }
 
-        private void SellInventoryEntry(InventoryEntry entry)
+        private void OnTransitionMidpoint(AreaType type, TransitionDirection dir)
         {
-            int sellPrice = Math.Max(1, entry.Item.BasePrice / 2);
-            RemoveItemFromInventory(entry.Item, 1);
-            playerData.Gold += sellPrice;
-            ShowStatus($"Sold {entry.Item.Name} for {sellPrice}g", 60);
+            ApplyArea(type);
+            playerX = dir == TransitionDirection.Right ? 10 : Width - playerWidth - 10;
+            velocityX = 0;
+            CloseAllPanels();
+        }
+
+        private void ApplyArea(AreaType type)
+        {
+            previousArea = currentArea;
+            currentArea = AreaDefinitions.Get(type);
+
+            bool enteringTown = currentArea.Type == AreaType.Town &&
+                                (previousArea == null || previousArea.Type != AreaType.Town);
+            if (enteringTown)
+                RefreshTownShops();
+
+            groundRect.Fill = new SolidColorBrush(currentArea.GroundColor);
+            ClearAreaZoneVisuals();
+            ClearEnemies();
+            ClearProjectiles();
+            SpawnAreaZones(currentArea);
+            SpawnEnemies(currentArea);
+            UpdateExitTexts();
+        }
+
+        private void RefreshTownShops()
+        {
+            foreach (var zone in AreaDefinitions.Get(AreaType.Town).Zones)
+            {
+                if (zone.Content is not ShopZoneContent shop)
+                    continue;
+
+                shop.Stock.Clear();
+
+                switch (shop.ShopType)
+                {
+                    case ShopType.Sword:
+                        for (int i = 0; i < 3; i++)
+                        {
+                            var sword = ItemFactory.CreateRandomSword(rng);
+                            shop.Stock.Add(new ShopListing { Item = sword, Quantity = 1, Price = sword.BasePrice });
+                        }
+                        break;
+
+                    case ShopType.Bow:
+                        for (int i = 0; i < 2; i++)
+                        {
+                            var bow = ItemFactory.CreateRandomBow(rng);
+                            shop.Stock.Add(new ShopListing { Item = bow, Quantity = 1, Price = bow.BasePrice });
+                        }
+                        var arrow = ItemFactory.CreateArrowItem();
+                        shop.Stock.Add(new ShopListing { Item = arrow, Quantity = 5, Price = 5 });
+                        break;
+
+                    case ShopType.Healing:
+                        var potion = ItemFactory.CreatePotion();
+                        shop.Stock.Add(new ShopListing { Item = potion, Quantity = 1, Price = potion.BasePrice });
+                        shop.Stock.Add(new ShopListing { Item = potion, Quantity = 2, Price = potion.BasePrice * 2 });
+                        break;
+                }
+            }
         }
 
         private void CheckAreaTransition()
@@ -2133,141 +1955,9 @@ namespace TaskbarRPG
             }
         }
 
-        private void StartMeleeAttack()
-        {
-            isAttacking = true;
-            attackFramesRemaining = attackDurationFrames;
-            player.Fill = Brushes.Yellow;
-            attackHitbox.Visibility = Visibility.Visible;
-
-            ApplyMeleeDamageNow();
-        }
-
-        private void ApplyMeleeDamageNow()
-        {
-            DrawAttackHitbox();
-
-            Rect attackRect = new Rect(
-                Canvas.GetLeft(attackHitbox),
-                Canvas.GetTop(attackHitbox),
-                attackHitbox.Width,
-                attackHitbox.Height);
-
-            int damage = playerData.BaseDamage + playerData.EquippedSword.Damage;
-
-            foreach (var enemy in activeEnemies.ToList())
-            {
-                if (!enemy.IsAlive)
-                    continue;
-
-                Rect enemyRect = new Rect(enemy.X, enemy.Y, enemy.Body.Width, enemy.Body.Height);
-                if (attackRect.IntersectsWith(enemyRect))
-                    DamageEnemy(enemy, damage);
-            }
-        }
-
-        private void FireBow()
-        {
-            if (playerData.EquippedBow == null)
-            {
-                ShowStatus("No bow equipped", 50);
-                return;
-            }
-
-            if (!playerData.RemoveArrows(1))
-            {
-                ShowStatus("Out of arrows", 50);
-                return;
-            }
-
-            int damage = playerData.BaseDamage + playerData.EquippedBow.Damage;
-
-            var body = new Rectangle
-            {
-                Width = 12,
-                Height = 3,
-                Fill = Brushes.SandyBrown,
-                RadiusX = 1,
-                RadiusY = 1
-            };
-
-            GameCanvas.Children.Add(body);
-            Panel.SetZIndex(body, 22);
-
-            double startX = facingRight
-                ? playerX + playerWidth + 2
-                : playerX - 12;
-
-            double startY = playerY + 12;
-
-            activeProjectiles.Add(new ArrowProjectile
-            {
-                Body = body,
-                X = startX,
-                Y = startY,
-                Direction = facingRight ? 1 : -1,
-                Speed = 8.5,
-                MaxDistance = 280,
-                DistanceTraveled = 0,
-                Damage = damage,
-                IsAlive = true
-            });
-        }
-
-        private void UpdateAttack()
-        {
-            if (!isAttacking)
-            {
-                if (playerDamageCooldownFrames > 0)
-                    player.Fill = Brushes.OrangeRed;
-                else
-                    player.Fill = controlsEnabled ? Brushes.Red : Brushes.DarkGray;
-
-                attackHitbox.Visibility = Visibility.Hidden;
-                return;
-            }
-
-            attackFramesRemaining--;
-
-            if (attackFramesRemaining <= 0)
-            {
-                isAttacking = false;
-                player.Fill = playerDamageCooldownFrames > 0
-                    ? Brushes.OrangeRed
-                    : (controlsEnabled ? Brushes.Red : Brushes.DarkGray);
-
-                attackHitbox.Visibility = Visibility.Hidden;
-            }
-        }
-
-        private void ApplyPhysics()
-        {
-            velocityY += gravity;
-            playerX += velocityX;
-            playerY += velocityY;
-        }
-
-        private void ResolveCollisions()
-        {
-            isOnGround = false;
-
-            if (playerX < -2) playerX = -2;
-            if (playerX > Width - playerWidth + 2) playerX = Width - playerWidth + 2;
-
-            if (playerY < 0)
-            {
-                playerY = 0;
-                if (velocityY < 0) velocityY = 0;
-            }
-
-            if (playerY >= groundY)
-            {
-                playerY = groundY;
-                velocityY = 0;
-                isOnGround = true;
-            }
-        }
-
+        // -----------------------------------------------------------------------
+        // Zone visuals
+        // -----------------------------------------------------------------------
         private void SpawnAreaZones(Area area)
         {
             foreach (var zone in area.Zones)
@@ -2335,13 +2025,10 @@ namespace TaskbarRPG
 
                 Canvas.SetLeft(building, buildingX);
                 Canvas.SetTop(building, buildingY);
-
                 Canvas.SetLeft(buildingLabel, buildingX - 7);
                 Canvas.SetTop(buildingLabel, buildingY - 18);
-
                 Canvas.SetLeft(npc, npcX);
                 Canvas.SetTop(npc, npcY);
-
                 Canvas.SetLeft(npcLabel, npcX - 37);
                 Canvas.SetTop(npcLabel, npcY - 16);
 
@@ -2374,25 +2061,20 @@ namespace TaskbarRPG
         {
             foreach (var visual in activeZoneVisuals)
             {
-                double npcX = Canvas.GetLeft(visual.Npc);
-                double npcY = Canvas.GetTop(visual.Npc);
-
-                double npcCenterX = npcX + visual.Npc.Width / 2;
+                double npcLeft = Canvas.GetLeft(visual.Npc);
+                double npcTop = Canvas.GetTop(visual.Npc);
+                double npcCenterX = npcLeft + visual.Npc.Width / 2;
                 double playerCenterX = playerX + playerWidth / 2;
 
-                double distanceX = Math.Abs(playerCenterX - npcCenterX);
-                double distanceY = Math.Abs(playerY - npcY);
-
-                bool inRange = distanceX <= 38 && distanceY <= 30;
-                if (!inRange)
-                    continue;
+                bool inRange = Math.Abs(playerCenterX - npcCenterX) <= 38 &&
+                               Math.Abs(playerY - npcTop) <= 30;
+                if (!inRange) continue;
 
                 bool facingNpc =
                     (facingRight && npcCenterX >= playerCenterX - 4) ||
                     (!facingRight && npcCenterX <= playerCenterX + 4);
 
-                if (facingNpc)
-                    return visual;
+                if (facingNpc) return visual;
             }
 
             return null;
@@ -2428,10 +2110,12 @@ namespace TaskbarRPG
             }
         }
 
+        // -----------------------------------------------------------------------
+        // Enemy management
+        // -----------------------------------------------------------------------
         private void SpawnEnemies(Area area)
         {
-            if (area.Type == AreaType.Town)
-                return;
+            if (area.Type == AreaType.Town) return;
 
             foreach (var def in area.EnemySpawns)
             {
@@ -2511,7 +2195,6 @@ namespace TaskbarRPG
                 GameCanvas.Children.Remove(enemy.HealthBg);
                 GameCanvas.Children.Remove(enemy.HealthFill);
             }
-
             activeEnemies.Clear();
         }
 
@@ -2519,34 +2202,25 @@ namespace TaskbarRPG
         {
             foreach (var enemy in activeEnemies)
             {
-                if (!enemy.IsAlive)
-                    continue;
+                if (!enemy.IsAlive) continue;
 
                 double playerCenterX = playerX + playerWidth / 2;
                 double enemyCenterX = enemy.X + enemy.Body.Width / 2;
-                double distanceToPlayer = Math.Abs(playerCenterX - enemyCenterX);
+                double distance = Math.Abs(playerCenterX - enemyCenterX);
 
-                if (distanceToPlayer <= enemy.Definition.AggroRange)
+                if (distance <= enemy.Definition.AggroRange)
                 {
+                    // Chase the player
                     enemy.Direction = playerCenterX >= enemyCenterX ? 1 : -1;
-                    enemy.X += enemy.Speed * enemy.Direction;
                 }
                 else
                 {
-                    enemy.X += enemy.Speed * enemy.Direction;
-
-                    if (enemy.X <= enemy.LeftBound)
-                    {
-                        enemy.X = enemy.LeftBound;
-                        enemy.Direction = 1;
-                    }
-                    else if (enemy.X >= enemy.RightBound)
-                    {
-                        enemy.X = enemy.RightBound;
-                        enemy.Direction = -1;
-                    }
+                    // Patrol — reverse at bounds
+                    if (enemy.X <= enemy.LeftBound) enemy.Direction = 1;
+                    else if (enemy.X >= enemy.RightBound) enemy.Direction = -1;
                 }
 
+                enemy.X += enemy.Speed * enemy.Direction;
                 enemy.X = Math.Max(0, Math.Min(Width - enemy.Body.Width, enemy.X));
                 enemy.Y = groundY + playerHeight - enemy.Body.Height;
             }
@@ -2556,23 +2230,19 @@ namespace TaskbarRPG
         {
             foreach (var enemy in activeEnemies)
             {
-                if (!enemy.IsAlive)
-                    continue;
+                if (!enemy.IsAlive) continue;
 
                 Canvas.SetLeft(enemy.Body, enemy.X);
                 Canvas.SetTop(enemy.Body, enemy.Y);
-
                 Canvas.SetLeft(enemy.Label, enemy.X - 26);
                 Canvas.SetTop(enemy.Label, enemy.Y - 14);
 
-                Canvas.SetLeft(enemy.HealthBg, enemy.X - 5);
-                Canvas.SetTop(enemy.HealthBg, enemy.Y - 22);
-
                 double hpRatio = enemy.Definition.MaxHealth > 0
-                    ? (double)enemy.CurrentHealth / enemy.Definition.MaxHealth
-                    : 0;
+                    ? (double)enemy.CurrentHealth / enemy.Definition.MaxHealth : 0;
 
                 enemy.HealthFill.Width = 28 * Math.Max(0, hpRatio);
+                Canvas.SetLeft(enemy.HealthBg, enemy.X - 5);
+                Canvas.SetTop(enemy.HealthBg, enemy.Y - 22);
                 Canvas.SetLeft(enemy.HealthFill, enemy.X - 5);
                 Canvas.SetTop(enemy.HealthFill, enemy.Y - 22);
             }
@@ -2580,38 +2250,31 @@ namespace TaskbarRPG
 
         private void HandleEnemyContactWithPlayer()
         {
-            if (playerDamageCooldownFrames > 0)
-                return;
+            if (playerDamageCooldownFrames > 0) return;
 
             Rect playerRect = new Rect(playerX, playerY, playerWidth, playerHeight);
 
             foreach (var enemy in activeEnemies)
             {
-                if (!enemy.IsAlive)
-                    continue;
+                if (!enemy.IsAlive) continue;
 
                 Rect enemyRect = new Rect(enemy.X, enemy.Y, enemy.Body.Width, enemy.Body.Height);
-                if (playerRect.IntersectsWith(enemyRect))
-                {
-                    playerData.Health = Math.Max(0, playerData.Health - enemy.Definition.ContactDamage);
-                    playerDamageCooldownFrames = PlayerDamageCooldownMax;
-                    player.Fill = Brushes.OrangeRed;
-                    ShowStatus($"Hit by {enemy.Definition.Name}!", 35);
-                    break;
-                }
+                if (!playerRect.IntersectsWith(enemyRect)) continue;
+
+                playerData.Health = Math.Max(0, playerData.Health - enemy.Definition.ContactDamage);
+                playerDamageCooldownFrames = PlayerDamageCooldownMax;
+                player.Fill = Brushes.OrangeRed;
+                ShowStatus($"Hit by {enemy.Definition.Name}!", 35);
+                break;
             }
         }
 
         private void DamageEnemy(SpawnedEnemy enemy, int damage)
         {
-            if (!enemy.IsAlive)
-                return;
-
+            if (!enemy.IsAlive) return;
             enemy.CurrentHealth -= damage;
             if (enemy.CurrentHealth <= 0)
-            {
                 KillEnemy(enemy);
-            }
         }
 
         private void KillEnemy(SpawnedEnemy enemy)
@@ -2638,17 +2301,123 @@ namespace TaskbarRPG
             while (playerData.Experience >= playerData.NextLevelXp)
             {
                 playerData.Experience -= playerData.NextLevelXp;
-                playerData.Level += 1;
+                playerData.Level++;
                 ShowStatus($"Level Up! Now Lv {playerData.Level}", 80);
             }
+        }
+
+        // -----------------------------------------------------------------------
+        // Combat — melee
+        // -----------------------------------------------------------------------
+        private void StartMeleeAttack()
+        {
+            isAttacking = true;
+            attackFramesRemaining = attackDurationFrames;
+            player.Fill = Brushes.Yellow;
+            attackHitbox.Visibility = Visibility.Visible;
+            ApplyMeleeDamageNow();
+        }
+
+        private void ApplyMeleeDamageNow()
+        {
+            DrawAttackHitbox();
+
+            Rect attackRect = new Rect(
+                Canvas.GetLeft(attackHitbox),
+                Canvas.GetTop(attackHitbox),
+                attackHitbox.Width,
+                attackHitbox.Height);
+
+            // Guard: use BaseDamage alone if no sword equipped
+            int damage = playerData.BaseDamage +
+                         (playerData.EquippedSword?.Damage ?? 0);
+
+            foreach (var enemy in activeEnemies.ToList())
+            {
+                if (!enemy.IsAlive) continue;
+                Rect enemyRect = new Rect(enemy.X, enemy.Y, enemy.Body.Width, enemy.Body.Height);
+                if (attackRect.IntersectsWith(enemyRect))
+                    DamageEnemy(enemy, damage);
+            }
+        }
+
+        private void UpdateAttack()
+        {
+            if (!isAttacking)
+            {
+                player.Fill = playerDamageCooldownFrames > 0
+                    ? Brushes.OrangeRed
+                    : (controlsEnabled ? Brushes.Red : Brushes.DarkGray);
+
+                attackHitbox.Visibility = Visibility.Hidden;
+                return;
+            }
+
+            attackFramesRemaining--;
+            if (attackFramesRemaining <= 0)
+            {
+                isAttacking = false;
+                player.Fill = playerDamageCooldownFrames > 0
+                    ? Brushes.OrangeRed
+                    : (controlsEnabled ? Brushes.Red : Brushes.DarkGray);
+
+                attackHitbox.Visibility = Visibility.Hidden;
+            }
+        }
+
+        // -----------------------------------------------------------------------
+        // Combat — bow
+        // -----------------------------------------------------------------------
+        private void FireBow()
+        {
+            if (playerData.EquippedBow == null)
+            {
+                ShowStatus("No bow equipped", 50);
+                return;
+            }
+
+            if (!playerData.RemoveArrows(1))
+            {
+                ShowStatus("Out of arrows", 50);
+                return;
+            }
+
+            int damage = playerData.BaseDamage + playerData.EquippedBow.Damage;
+
+            var body = new Rectangle
+            {
+                Width = 12,
+                Height = 3,
+                Fill = Brushes.SandyBrown,
+                RadiusX = 1,
+                RadiusY = 1
+            };
+
+            GameCanvas.Children.Add(body);
+            Panel.SetZIndex(body, 22);
+
+            double startX = facingRight ? playerX + playerWidth + 2 : playerX - 12;
+            double startY = playerY + 12;
+
+            activeProjectiles.Add(new ArrowProjectile
+            {
+                Body = body,
+                X = startX,
+                Y = startY,
+                Direction = facingRight ? 1 : -1,
+                Speed = 8.5,
+                MaxDistance = 280,
+                DistanceTraveled = 0,
+                Damage = damage,
+                IsAlive = true
+            });
         }
 
         private void UpdateProjectiles()
         {
             foreach (var arrow in activeProjectiles.ToList())
             {
-                if (!arrow.IsAlive)
-                    continue;
+                if (!arrow.IsAlive) continue;
 
                 double move = arrow.Speed * arrow.Direction;
                 arrow.X += move;
@@ -2664,9 +2433,7 @@ namespace TaskbarRPG
 
                 foreach (var enemy in activeEnemies.ToList())
                 {
-                    if (!enemy.IsAlive)
-                        continue;
-
+                    if (!enemy.IsAlive) continue;
                     Rect enemyRect = new Rect(enemy.X, enemy.Y, enemy.Body.Width, enemy.Body.Height);
                     if (arrowRect.IntersectsWith(enemyRect))
                     {
@@ -2682,9 +2449,7 @@ namespace TaskbarRPG
         {
             foreach (var arrow in activeProjectiles)
             {
-                if (!arrow.IsAlive)
-                    continue;
-
+                if (!arrow.IsAlive) continue;
                 Canvas.SetLeft(arrow.Body, arrow.X);
                 Canvas.SetTop(arrow.Body, arrow.Y);
             }
@@ -2692,9 +2457,7 @@ namespace TaskbarRPG
 
         private void RemoveProjectile(ArrowProjectile arrow)
         {
-            if (!arrow.IsAlive)
-                return;
-
+            if (!arrow.IsAlive) return;
             arrow.IsAlive = false;
             GameCanvas.Children.Remove(arrow.Body);
             activeProjectiles.Remove(arrow);
@@ -2704,10 +2467,46 @@ namespace TaskbarRPG
         {
             foreach (var arrow in activeProjectiles)
                 GameCanvas.Children.Remove(arrow.Body);
-
             activeProjectiles.Clear();
         }
 
+        // -----------------------------------------------------------------------
+        // Physics
+        // -----------------------------------------------------------------------
+        private void ApplyPhysics()
+        {
+            velocityY += gravity;
+            playerX += velocityX;
+            playerY += velocityY;
+        }
+
+        private void ResolveCollisions()
+        {
+            isOnGround = false;
+
+            // Horizontal soft clamp — allow tiny overshoot so area transitions fire
+            if (playerX < -2) playerX = -2;
+            if (playerX > Width - playerWidth + 2) playerX = Width - playerWidth + 2;
+
+            // Ceiling
+            if (playerY < 0)
+            {
+                playerY = 0;
+                if (velocityY < 0) velocityY = 0;
+            }
+
+            // Ground
+            if (playerY >= groundY)
+            {
+                playerY = groundY;
+                velocityY = 0;
+                isOnGround = true;
+            }
+        }
+
+        // -----------------------------------------------------------------------
+        // Inventory & shop helpers
+        // -----------------------------------------------------------------------
         private void UsePotion()
         {
             if (playerData.Health >= playerData.MaxHealth)
@@ -2716,8 +2515,10 @@ namespace TaskbarRPG
                 return;
             }
 
-            var potionEntry = playerData.Inventory.FirstOrDefault(i => i.Item is ConsumableItem c && c.Name == "Potion");
-            if (potionEntry == null || potionEntry.Quantity <= 0)
+            var potionEntry = playerData.Inventory
+                .FirstOrDefault(i => i.Item is ConsumableItem c && c.Name == "Potion");
+
+            if (potionEntry == null)
             {
                 ShowStatus("No potion", 50);
                 return;
@@ -2729,32 +2530,63 @@ namespace TaskbarRPG
             ShowStatus($"Used Potion (+{potion.HealAmount} HP)", 60);
         }
 
+        private void BuyShopListing(ShopListing listing)
+        {
+            if (playerData.Gold < listing.Price)
+            {
+                ShowStatus("Not enough gold", 60);
+                return;
+            }
+
+            playerData.Gold -= listing.Price;
+
+            if (listing.Item is WeaponItem weapon)
+            {
+                var purchased = CloneWeapon(weapon);
+                AddItemToInventory(purchased, 1);
+
+                if (weapon.WeaponCategory == WeaponCategory.Sword)
+                {
+                    playerData.EquippedSword = purchased;
+                    ShowStatus($"Bought & equipped {purchased.Name}", 70);
+                }
+                else
+                {
+                    playerData.EquippedBow = purchased;
+                    ShowStatus($"Bought & equipped {purchased.Name}", 70);
+                }
+            }
+            else
+            {
+                AddItemToInventory(CloneItem(listing.Item), listing.Quantity);
+                ShowStatus($"Bought {listing.Item.Name} x{listing.Quantity}", 70);
+            }
+        }
+
+        private void SellInventoryEntry(InventoryEntry entry)
+        {
+            int sellPrice = Math.Max(1, entry.Item.BasePrice / 2);
+            RemoveItemFromInventory(entry.Item, 1);
+            playerData.Gold += sellPrice;
+            ShowStatus($"Sold {entry.Item.Name} for {sellPrice}g", 60);
+        }
+
         private void AddItemToInventory(ItemBase item, int quantity)
         {
             if (item.Stackable)
             {
-                var existing = playerData.Inventory.FirstOrDefault(i =>
-                    i.Item.GetType() == item.GetType() && i.Item.Name == item.Name);
-
-                if (existing != null)
-                {
-                    existing.Quantity += quantity;
-                    return;
-                }
+                var existing = playerData.Inventory
+                    .FirstOrDefault(i => i.Item.GetType() == item.GetType() && i.Item.Name == item.Name);
+                if (existing != null) { existing.Quantity += quantity; return; }
             }
 
-            playerData.Inventory.Add(new InventoryEntry
-            {
-                Item = item,
-                Quantity = quantity
-            });
+            playerData.Inventory.Add(new InventoryEntry { Item = item, Quantity = quantity });
         }
 
         private void RemoveItemFromInventory(ItemBase item, int quantity)
         {
             var entry = playerData.Inventory.FirstOrDefault(i => i.Item == item);
-            if (entry == null)
-                return;
+            if (entry == null) return;
 
             entry.Quantity -= quantity;
             if (entry.Quantity <= 0)
@@ -2764,63 +2596,33 @@ namespace TaskbarRPG
         private List<InventoryEntry> GetSellableInventory()
         {
             return playerData.Inventory
-                .Where(i =>
-                    i.Item != playerData.EquippedSword &&
-                    i.Item != playerData.EquippedBow)
+                .Where(i => i.Item != playerData.EquippedSword &&
+                            i.Item != playerData.EquippedBow)
                 .ToList();
         }
 
         private string GetInventorySummary()
         {
-            if (playerData.Inventory.Count == 0)
-                return "None";
+            if (playerData.Inventory.Count == 0) return "None";
 
-            var parts = new List<string>();
-            foreach (var entry in playerData.Inventory)
-            {
-                string qty = entry.Quantity > 1 ? $" x{entry.Quantity}" : "";
-                parts.Add($"{entry.Item.Name}{qty}");
-            }
-
-            return string.Join(", ", parts);
+            return string.Join(", ", playerData.Inventory.Select(e =>
+                e.Quantity > 1 ? $"{e.Item.Name} x{e.Quantity}" : e.Item.Name));
         }
 
         private ItemBase CloneItem(ItemBase item)
         {
             if (item is WeaponItem w) return CloneWeapon(w);
-            if (item is ConsumableItem c)
-            {
-                return new ConsumableItem
-                {
-                    Name = c.Name,
-                    HealAmount = c.HealAmount,
-                    BasePrice = c.BasePrice
-                };
-            }
-            if (item is AmmoItem a)
-            {
-                return new AmmoItem
-                {
-                    Name = a.Name,
-                    AmmoType = a.AmmoType,
-                    BasePrice = a.BasePrice
-                };
-            }
-
-            throw new InvalidOperationException("Unknown item type");
+            if (item is ConsumableItem c) return new ConsumableItem { Name = c.Name, HealAmount = c.HealAmount, BasePrice = c.BasePrice };
+            if (item is AmmoItem a) return new AmmoItem { Name = a.Name, AmmoType = a.AmmoType, BasePrice = a.BasePrice };
+            throw new InvalidOperationException($"Unknown item type: {item.GetType().Name}");
         }
 
-        private WeaponItem CloneWeapon(WeaponItem weapon)
-        {
-            return new WeaponItem
-            {
-                Name = weapon.Name,
-                WeaponCategory = weapon.WeaponCategory,
-                Damage = weapon.Damage,
-                BasePrice = weapon.BasePrice
-            };
-        }
+        private WeaponItem CloneWeapon(WeaponItem w) =>
+            new WeaponItem { Name = w.Name, WeaponCategory = w.WeaponCategory, Damage = w.Damage, BasePrice = w.BasePrice };
 
+        // -----------------------------------------------------------------------
+        // Drawing helpers
+        // -----------------------------------------------------------------------
         private void DrawPlayer()
         {
             Canvas.SetLeft(player, playerX);
@@ -2846,8 +2648,7 @@ namespace TaskbarRPG
             Canvas.SetTop(playerHealthBg, hudY);
 
             double hpRatio = playerData.MaxHealth > 0
-                ? (double)playerData.Health / playerData.MaxHealth
-                : 0;
+                ? (double)playerData.Health / playerData.MaxHealth : 0;
 
             playerHealthFill.Width = 44 * Math.Max(0, hpRatio);
             Canvas.SetLeft(playerHealthFill, hudX);
@@ -2857,7 +2658,7 @@ namespace TaskbarRPG
             Canvas.SetLeft(playerHealthText, playerX - 18);
             Canvas.SetTop(playerHealthText, playerY - 36);
 
-            playerArrowText.Text = $"Arrows: {playerData.GetArrowCount()}";
+            playerArrowText.Text = $"Arrows:{playerData.GetArrowCount()}";
             Canvas.SetLeft(playerArrowText, playerX - 18);
             Canvas.SetTop(playerArrowText, playerY - 47);
         }
