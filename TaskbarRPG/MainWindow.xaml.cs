@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -11,25 +12,209 @@ using System.Windows.Threading;
 
 namespace TaskbarRPG
 {
-    // ════════════════════════════════════════════════════════════════════════════
-    // AREA SYSTEM
-    // To add a new area:
-    //   1. Add a value to AreaType
-    //   2. Add a new Area entry in AreaDefinitions.All
-    //   3. Set LeftExit / RightExit on neighboring areas to connect them
-    // That's it — the rest is automatic.
-    //
-    // Fast travel menu is dynamic:
-    //   - F7 opens/closes the menu
-    //   - Number keys 1..9 travel to the corresponding area in the list
-    // ════════════════════════════════════════════════════════════════════════════
-
     public enum AreaType
     {
         Town,
         Plains,
         Cave,
-        // Add new area types here ↓
+    }
+
+    public enum TransitionDirection
+    {
+        Left,
+        Right
+    }
+
+    public enum ZoneContentType
+    {
+        None,
+        Shop
+    }
+
+    public enum ShopType
+    {
+        Sword,
+        Bow,
+        Healing
+    }
+
+    public enum PanelMode
+    {
+        None,
+        FastTravel,
+        Stats,
+        Map,
+        ShopMain,
+        ShopBuy,
+        ShopSell,
+        EquipSword,
+        EquipBow,
+    }
+
+    public enum ItemKind
+    {
+        Weapon,
+        Consumable,
+        Ammo,
+        Misc
+    }
+
+    public enum WeaponCategory
+    {
+        Sword,
+        Bow
+    }
+
+    public abstract class ItemBase
+    {
+        public string Id { get; set; } = Guid.NewGuid().ToString();
+        public string Name { get; set; } = "";
+        public ItemKind Kind { get; protected set; }
+        public int BasePrice { get; set; }
+        public bool Stackable { get; protected set; }
+
+        public virtual string GetDisplayText() => Name;
+    }
+
+    public class WeaponItem : ItemBase
+    {
+        public WeaponCategory WeaponCategory { get; set; }
+        public int Damage { get; set; }
+
+        public WeaponItem()
+        {
+            Kind = ItemKind.Weapon;
+            Stackable = false;
+        }
+
+        public override string GetDisplayText() => $"{Name} (DMG {Damage})";
+    }
+
+    public class ConsumableItem : ItemBase
+    {
+        public int HealAmount { get; set; }
+
+        public ConsumableItem()
+        {
+            Kind = ItemKind.Consumable;
+            Stackable = true;
+        }
+
+        public override string GetDisplayText() => $"{Name} (+{HealAmount} HP)";
+    }
+
+    public class AmmoItem : ItemBase
+    {
+        public string AmmoType { get; set; } = "Arrow";
+
+        public AmmoItem()
+        {
+            Kind = ItemKind.Ammo;
+            Stackable = true;
+        }
+
+        public override string GetDisplayText() => Name;
+    }
+
+    public class InventoryEntry
+    {
+        public ItemBase Item { get; set; } = null!;
+        public int Quantity { get; set; }
+    }
+
+    public class ShopListing
+    {
+        public ItemBase Item { get; set; } = null!;
+        public int Quantity { get; set; } = 1;
+        public int Price { get; set; }
+
+        public string GetDisplayText()
+        {
+            if (Quantity > 1)
+                return $"{Item.GetDisplayText()} x{Quantity} - {Price}g";
+
+            return $"{Item.GetDisplayText()} - {Price}g";
+        }
+    }
+
+    public class PlayerData
+    {
+        public int Level { get; set; } = 1;
+        public int Experience { get; set; } = 0;
+        public int Gold { get; set; } = 10;
+        public int Health { get; set; } = 100;
+        public int MaxHealth { get; set; } = 100;
+
+        public WeaponItem EquippedSword { get; set; } = null!;
+        public WeaponItem EquippedBow { get; set; } = null!;
+
+        public List<InventoryEntry> Inventory { get; set; } = new();
+
+        public int NextLevelXp => Level * 12;
+        public int BaseDamage => Level;
+
+        public int GetArrowCount()
+        {
+            var arrows = Inventory.FirstOrDefault(i => i.Item is AmmoItem ammo && ammo.AmmoType == "Arrow");
+            return arrows?.Quantity ?? 0;
+        }
+
+        public bool RemoveArrows(int amount)
+        {
+            var arrows = Inventory.FirstOrDefault(i => i.Item is AmmoItem ammo && ammo.AmmoType == "Arrow");
+            if (arrows == null || arrows.Quantity < amount)
+                return false;
+
+            arrows.Quantity -= amount;
+            if (arrows.Quantity <= 0)
+                Inventory.Remove(arrows);
+
+            return true;
+        }
+    }
+
+    public class VariableZone
+    {
+        public int SlotIndex { get; set; }
+        public double X { get; set; }
+        public ZoneContent? Content { get; set; }
+    }
+
+    public abstract class ZoneContent
+    {
+        public ZoneContentType ContentType { get; protected set; }
+        public string DisplayName { get; set; } = "";
+        public string NpcName { get; set; } = "";
+        public Color BuildingColor { get; set; } = Colors.Gray;
+        public Color NpcColor { get; set; } = Colors.White;
+    }
+
+    public class ShopZoneContent : ZoneContent
+    {
+        public ShopType ShopType { get; set; }
+        public List<ShopListing> Stock { get; set; } = new();
+
+        public ShopZoneContent()
+        {
+            ContentType = ZoneContentType.Shop;
+        }
+    }
+
+    public class EnemyDefinition
+    {
+        public string Name { get; set; } = "Enemy";
+        public double X { get; set; }
+        public double PatrolRange { get; set; } = 80;
+        public double AggroRange { get; set; } = 180;
+        public double Speed { get; set; } = 1.0;
+        public int MaxHealth { get; set; } = 5;
+        public int ContactDamage { get; set; } = 5;
+        public int XpReward { get; set; } = 4;
+        public int GoldMin { get; set; } = 1;
+        public int GoldMax { get; set; } = 2;
+        public Color Color { get; set; } = Colors.Purple;
+        public double Width { get; set; } = 18;
+        public double Height { get; set; } = 24;
     }
 
     public class Area
@@ -37,40 +222,155 @@ namespace TaskbarRPG
         public AreaType Type { get; set; }
         public string Name { get; set; } = "";
         public Color GroundColor { get; set; }
+        public int LevelRequirement { get; set; }
         public AreaType? LeftExit { get; set; }
         public AreaType? RightExit { get; set; }
+        public VariableZone[] Zones { get; set; } = new VariableZone[6];
+        public List<EnemyDefinition> EnemySpawns { get; set; } = new();
     }
 
     public static class AreaDefinitions
     {
-        // Keep this list in the order you want it to appear in the fast-travel menu.
         public static readonly List<Area> Ordered = new()
         {
             new Area
             {
                 Type = AreaType.Town,
                 Name = "Town",
-                GroundColor = Color.FromRgb(194, 154, 108),   // light brown dirt road
+                GroundColor = Color.FromRgb(194, 154, 108),
+                LevelRequirement = 0,
                 LeftExit = null,
                 RightExit = AreaType.Plains,
+                Zones = new VariableZone[]
+                {
+                    new VariableZone
+                    {
+                        SlotIndex = 0,
+                        X = 180,
+                        Content = new ShopZoneContent
+                        {
+                            ShopType = ShopType.Sword,
+                            DisplayName = "Sword Shop",
+                            NpcName = "Blacksmith",
+                            BuildingColor = Color.FromRgb(110, 110, 120),
+                            NpcColor = Color.FromRgb(220, 220, 220),
+                        }
+                    },
+                    new VariableZone { SlotIndex = 1, X = 430, Content = null },
+                    new VariableZone
+                    {
+                        SlotIndex = 2,
+                        X = 680,
+                        Content = new ShopZoneContent
+                        {
+                            ShopType = ShopType.Bow,
+                            DisplayName = "Bow Shop",
+                            NpcName = "Fletcher",
+                            BuildingColor = Color.FromRgb(120, 85, 55),
+                            NpcColor = Color.FromRgb(210, 190, 130),
+                        }
+                    },
+                    new VariableZone { SlotIndex = 3, X = 930, Content = null },
+                    new VariableZone
+                    {
+                        SlotIndex = 4,
+                        X = 1180,
+                        Content = new ShopZoneContent
+                        {
+                            ShopType = ShopType.Healing,
+                            DisplayName = "Healing Shop",
+                            NpcName = "Healer",
+                            BuildingColor = Color.FromRgb(140, 180, 150),
+                            NpcColor = Color.FromRgb(255, 220, 240),
+                        }
+                    },
+                    new VariableZone { SlotIndex = 5, X = 1430, Content = null },
+                },
+                EnemySpawns = new List<EnemyDefinition>()
             },
 
             new Area
             {
                 Type = AreaType.Plains,
                 Name = "Plains",
-                GroundColor = Color.FromRgb(90, 170, 80),     // grass green
+                GroundColor = Color.FromRgb(90, 170, 80),
+                LevelRequirement = 0,
                 LeftExit = AreaType.Town,
                 RightExit = AreaType.Cave,
+                Zones = CreateEmptyZones(),
+                EnemySpawns = new List<EnemyDefinition>
+                {
+                    new EnemyDefinition
+                    {
+                        Name = "Slime",
+                        X = 450,
+                        PatrolRange = 90,
+                        AggroRange = 170,
+                        Speed = 1.0,
+                        MaxHealth = 5,
+                        ContactDamage = 5,
+                        XpReward = 4,
+                        GoldMin = 1,
+                        GoldMax = 2,
+                        Color = Color.FromRgb(80, 220, 130),
+                    },
+                    new EnemyDefinition
+                    {
+                        Name = "Slime",
+                        X = 980,
+                        PatrolRange = 120,
+                        AggroRange = 170,
+                        Speed = 1.1,
+                        MaxHealth = 5,
+                        ContactDamage = 5,
+                        XpReward = 4,
+                        GoldMin = 1,
+                        GoldMax = 2,
+                        Color = Color.FromRgb(50, 190, 100),
+                    }
+                }
             },
 
             new Area
             {
                 Type = AreaType.Cave,
                 Name = "Cave",
-                GroundColor = Color.FromRgb(95, 95, 105),     // cave stone
+                GroundColor = Color.FromRgb(95, 95, 105),
+                LevelRequirement = 5,
                 LeftExit = AreaType.Plains,
                 RightExit = null,
+                Zones = CreateEmptyZones(),
+                EnemySpawns = new List<EnemyDefinition>
+                {
+                    new EnemyDefinition
+                    {
+                        Name = "Bat",
+                        X = 520,
+                        PatrolRange = 140,
+                        AggroRange = 210,
+                        Speed = 1.4,
+                        MaxHealth = 9,
+                        ContactDamage = 8,
+                        XpReward = 8,
+                        GoldMin = 3,
+                        GoldMax = 5,
+                        Color = Color.FromRgb(150, 80, 180),
+                    },
+                    new EnemyDefinition
+                    {
+                        Name = "Crawler",
+                        X = 1180,
+                        PatrolRange = 80,
+                        AggroRange = 180,
+                        Speed = 1.2,
+                        MaxHealth = 12,
+                        ContactDamage = 10,
+                        XpReward = 10,
+                        GoldMin = 4,
+                        GoldMax = 6,
+                        Color = Color.FromRgb(170, 70, 70),
+                    }
+                }
             },
         };
 
@@ -78,14 +378,97 @@ namespace TaskbarRPG
             Ordered.ToDictionary(a => a.Type, a => a);
 
         public static Area Get(AreaType type) => All[type];
+
+        private static VariableZone[] CreateEmptyZones()
+        {
+            return new VariableZone[]
+            {
+                new VariableZone { SlotIndex = 0, X = 180,  Content = null },
+                new VariableZone { SlotIndex = 1, X = 430,  Content = null },
+                new VariableZone { SlotIndex = 2, X = 680,  Content = null },
+                new VariableZone { SlotIndex = 3, X = 930,  Content = null },
+                new VariableZone { SlotIndex = 4, X = 1180, Content = null },
+                new VariableZone { SlotIndex = 5, X = 1430, Content = null },
+            };
+        }
     }
 
-    // ════════════════════════════════════════════════════════════════════════════
-    // TRANSITION SYSTEM
-    // Handles the black fade between areas.
-    // ════════════════════════════════════════════════════════════════════════════
+    public static class ItemFactory
+    {
+        public static WeaponItem CreateOldSword()
+        {
+            return new WeaponItem
+            {
+                Name = "Old Sword",
+                WeaponCategory = WeaponCategory.Sword,
+                Damage = 2,
+                BasePrice = 8,
+            };
+        }
 
-    public enum TransitionDirection { Left, Right }
+        public static WeaponItem CreateStarterBow()
+        {
+            return new WeaponItem
+            {
+                Name = "Simple Bow",
+                WeaponCategory = WeaponCategory.Bow,
+                Damage = 1,
+                BasePrice = 10,
+            };
+        }
+
+        public static ConsumableItem CreatePotion()
+        {
+            return new ConsumableItem
+            {
+                Name = "Potion",
+                HealAmount = 25,
+                BasePrice = 8,
+            };
+        }
+
+        public static AmmoItem CreateArrowItem()
+        {
+            return new AmmoItem
+            {
+                Name = "Arrow",
+                AmmoType = "Arrow",
+                BasePrice = 1,
+            };
+        }
+
+        public static WeaponItem CreateRandomSword(Random rng)
+        {
+            string[] prefixes = { "Bronze", "Iron", "Steel", "Hunter's", "Knight's" };
+            string[] suffixes = { "Sword", "Blade", "Sabre" };
+            int damage = rng.Next(2, 7);
+            int price = 6 + (damage * 6);
+
+            return new WeaponItem
+            {
+                Name = $"{prefixes[rng.Next(prefixes.Length)]} {suffixes[rng.Next(suffixes.Length)]}",
+                WeaponCategory = WeaponCategory.Sword,
+                Damage = damage,
+                BasePrice = price,
+            };
+        }
+
+        public static WeaponItem CreateRandomBow(Random rng)
+        {
+            string[] prefixes = { "Oak", "Recurve", "Hunter's", "Elm", "Long" };
+            string[] suffixes = { "Bow", "Shortbow", "Longbow" };
+            int damage = rng.Next(1, 6);
+            int price = 8 + (damage * 7);
+
+            return new WeaponItem
+            {
+                Name = $"{prefixes[rng.Next(prefixes.Length)]} {suffixes[rng.Next(suffixes.Length)]}",
+                WeaponCategory = WeaponCategory.Bow,
+                Damage = damage,
+                BasePrice = price,
+            };
+        }
+    }
 
     public class AreaTransition
     {
@@ -167,27 +550,72 @@ namespace TaskbarRPG
         }
     }
 
-    // ════════════════════════════════════════════════════════════════════════════
-    // MAIN WINDOW
-    // ════════════════════════════════════════════════════════════════════════════
+    public class SpawnedZoneVisual
+    {
+        public VariableZone Zone = null!;
+        public Rectangle Building = null!;
+        public TextBlock BuildingLabel = null!;
+        public Rectangle Npc = null!;
+        public TextBlock NpcLabel = null!;
+    }
+
+    public class SpawnedEnemy
+    {
+        public EnemyDefinition Definition = null!;
+        public Rectangle Body = null!;
+        public TextBlock Label = null!;
+        public Rectangle HealthBg = null!;
+        public Rectangle HealthFill = null!;
+        public double X;
+        public double Y;
+        public double LeftBound;
+        public double RightBound;
+        public double Speed;
+        public int Direction = 1;
+        public bool IsAlive = true;
+        public int CurrentHealth;
+    }
+
+    public class ArrowProjectile
+    {
+        public Rectangle Body = null!;
+        public double X;
+        public double Y;
+        public int Direction;
+        public double Speed;
+        public double DistanceTraveled;
+        public double MaxDistance;
+        public int Damage;
+        public bool IsAlive = true;
+    }
 
     public partial class MainWindow : Window
     {
-        // ── Win32 ────────────────────────────────────────────────────────────────
         private const int GWL_EXSTYLE = -20;
         private const int WS_EX_TRANSPARENT = 0x20;
         private const int WS_EX_TOOLWINDOW = 0x80;
+
+        private const int WH_KEYBOARD_LL = 13;
+        private const int WM_KEYDOWN = 0x0100;
+        private const int WM_KEYUP = 0x0101;
+        private const int WM_SYSKEYDOWN = 0x0104;
+        private const int WM_SYSKEYUP = 0x0105;
 
         private const int VK_LEFT = 0x25;
         private const int VK_UP = 0x26;
         private const int VK_RIGHT = 0x27;
         private const int VK_SPACE = 0x20;
         private const int VK_A = 0x41;
+        private const int VK_C = 0x43;
         private const int VK_D = 0x44;
+        private const int VK_E = 0x45;
+        private const int VK_F = 0x46;
+        private const int VK_M = 0x4D;
         private const int VK_W = 0x57;
+        private const int VK_X = 0x58;
         private const int VK_Z = 0x5A;
-        private const int VK_F7 = 0x76;
         private const int VK_F8 = 0x77;
+        private const int VK_OEM_2 = 0xBF; // / ?
         private const int VK_1 = 0x31;
         private const int VK_2 = 0x32;
         private const int VK_3 = 0x33;
@@ -207,13 +635,26 @@ namespace TaskbarRPG
         [DllImport("shell32.dll")]
         private static extern int SHAppBarMessage(uint dwMessage, ref APPBARDATA pData);
 
-        [DllImport("user32.dll")]
-        private static extern short GetAsyncKeyState(int vKey);
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr GetModuleHandle(string? lpModuleName);
 
         private const uint ABM_GETTASKBARPOS = 0x00000005;
 
         [StructLayout(LayoutKind.Sequential)]
-        public struct RECT { public int left, top, right, bottom; }
+        public struct RECT
+        {
+            public int left, top, right, bottom;
+        }
 
         [StructLayout(LayoutKind.Sequential)]
         public struct APPBARDATA
@@ -226,21 +667,72 @@ namespace TaskbarRPG
             public int lParam;
         }
 
-        // ── Game objects ─────────────────────────────────────────────────────────
+        [StructLayout(LayoutKind.Sequential)]
+        private struct KBDLLHOOKSTRUCT
+        {
+            public uint vkCode;
+            public uint scanCode;
+            public uint flags;
+            public uint time;
+            public IntPtr dwExtraInfo;
+        }
+
+        private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+        private readonly Random rng = new Random();
+
+        private IntPtr keyboardHook = IntPtr.Zero;
+        private LowLevelKeyboardProc? keyboardProc;
+
+        private bool leftHeld = false;
+        private bool rightHeld = false;
+        private bool jumpHeld = false;
+        private bool meleeHeld = false;
+        private bool fireHeld = false;
+        private bool closeHeld = false;
+        private bool fastTravelHeld = false;
+        private bool statsHeld = false;
+        private bool mapHeld = false;
+        private bool potionHeld = false;
+
+        private readonly bool[] numberHeld = new bool[9];
+
+        private bool jumpHeldLastFrame = false;
+        private bool meleeHeldLastFrame = false;
+        private bool fireHeldLastFrame = false;
+        private bool closeHeldLastFrame = false;
+        private bool fastTravelHeldLastFrame = false;
+        private bool statsHeldLastFrame = false;
+        private bool mapHeldLastFrame = false;
+        private bool potionHeldLastFrame = false;
+        private readonly bool[] numberHeldLastFrame = new bool[9];
+
         private DispatcherTimer timer = null!;
         private Rectangle player = null!;
         private Rectangle attackHitbox = null!;
         private Rectangle groundRect = null!;
 
-        // ── Fast travel menu visuals ─────────────────────────────────────────────
-        private Border fastTravelPanel = null!;
-        private TextBlock fastTravelText = null!;
+        private Rectangle playerHealthBg = null!;
+        private Rectangle playerHealthFill = null!;
+        private TextBlock playerHealthText = null!;
+        private TextBlock playerArrowText = null!;
 
-        // ── Area state ───────────────────────────────────────────────────────────
+        private Border panelBorder = null!;
+        private TextBlock panelText = null!;
+
+        private TextBlock leftExitText = null!;
+        private TextBlock rightExitText = null!;
+        private TextBlock statusText = null!;
+
         private Area currentArea = null!;
+        private Area? previousArea = null;
         private AreaTransition transition = null!;
+        private readonly List<SpawnedZoneVisual> activeZoneVisuals = new();
+        private readonly List<SpawnedEnemy> activeEnemies = new();
+        private readonly List<ArrowProjectile> activeProjectiles = new();
 
-        // ── Physics ──────────────────────────────────────────────────────────────
+        private readonly PlayerData playerData = new();
+
         private double playAreaHeight = 140;
         private double playerX = 100;
         private double playerY = 0;
@@ -248,54 +740,273 @@ namespace TaskbarRPG
         private double playerHeight = 30;
         private double velocityX = 0;
         private double velocityY = 0;
-        private double moveSpeed = 3.0;
-        private double gravity = 0.45;
-        private double jumpStrength = -8.5;
+        private double moveSpeed = 4.4;
+        private double gravity = 0.8;
+        private double jumpStrength = -7.4;
         private double groundY = 0;
         private bool isOnGround = false;
         private bool facingRight = true;
         private double groundStripHeight = 14;
 
-        // ── Input state ──────────────────────────────────────────────────────────
-        private bool jumpHeldLastFrame = false;
-        private bool attackHeldLastFrame = false;
-        private bool toggleHeldLastFrame = false;
-        private bool fastTravelHeldLastFrame = false;
         private bool controlsEnabled = false;
-        private bool fastTravelOpen = false;
-        private readonly bool[] numberHeldLastFrame = new bool[9];
+        private PanelMode panelMode = PanelMode.None;
 
-        // ── Attack state ─────────────────────────────────────────────────────────
         private bool isAttacking = false;
         private int attackFramesRemaining = 0;
-        private int attackDurationFrames = 10;
+        private int attackDurationFrames = 8;
+
+        private SpawnedZoneVisual? currentInteractableZone = null;
+        private ShopZoneContent? activeShop = null;
+
+        private double mapPulseTime = 0;
+        private int playerDamageCooldownFrames = 0;
+        private const int PlayerDamageCooldownMax = 35;
+        private int statusFramesRemaining = 0;
 
         public MainWindow()
         {
             InitializeComponent();
             Loaded += MainWindow_Loaded;
+            Closed += MainWindow_Closed;
         }
 
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
-            // For true transparency, your XAML window should also use:
-            // AllowsTransparency="True"
-            // Background="Transparent"
-
+            InitializePlayerData();
             PositionAboveTaskbar();
             MakeClickThrough();
             CreateBackground();
-            CreateFastTravelMenu();
+            CreateHud();
+            CreateMainPanel();
+            CreateEdgeTexts();
             CreatePlayer();
             SetupTransition();
+            InstallKeyboardHook();
 
-            // Start in town
             LoadArea(AreaType.Town, TransitionDirection.Right, animate: false);
-
             StartGameLoop();
         }
 
-        // ── Area loading ─────────────────────────────────────────────────────────
+        private void InitializePlayerData()
+        {
+            var oldSword = ItemFactory.CreateOldSword();
+            var starterBow = ItemFactory.CreateStarterBow();
+
+            playerData.EquippedSword = oldSword;
+            playerData.EquippedBow = starterBow;
+
+            AddItemToInventory(oldSword, 1);
+            AddItemToInventory(starterBow, 1);
+            AddItemToInventory(ItemFactory.CreatePotion(), 2);
+            AddItemToInventory(ItemFactory.CreateArrowItem(), 10);
+        }
+
+        private void MainWindow_Closed(object? sender, EventArgs e)
+        {
+            if (keyboardHook != IntPtr.Zero)
+            {
+                UnhookWindowsHookEx(keyboardHook);
+                keyboardHook = IntPtr.Zero;
+            }
+        }
+
+        private void InstallKeyboardHook()
+        {
+            keyboardProc = KeyboardHookCallback;
+
+            using Process curProcess = Process.GetCurrentProcess();
+            using ProcessModule? curModule = curProcess.MainModule;
+            IntPtr moduleHandle = GetModuleHandle(curModule?.ModuleName);
+
+            keyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, keyboardProc, moduleHandle, 0);
+        }
+
+        private IntPtr KeyboardHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            if (nCode >= 0)
+            {
+                int msg = wParam.ToInt32();
+                bool isKeyDown = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
+                bool isKeyUp = msg == WM_KEYUP || msg == WM_SYSKEYUP;
+
+                if (isKeyDown || isKeyUp)
+                {
+                    KBDLLHOOKSTRUCT kb = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
+                    int vk = (int)kb.vkCode;
+                    bool down = isKeyDown;
+
+                    if (isKeyDown && vk == VK_F8)
+                    {
+                        Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            controlsEnabled = !controlsEnabled;
+                            ShowStatus(controlsEnabled ? "GAME ON" : "GAME OFF", 50);
+
+                            if (!controlsEnabled)
+                            {
+                                CloseAllPanels();
+                                ResetHeldInputs();
+                            }
+                        }));
+
+                        return (IntPtr)1;
+                    }
+
+                    if (controlsEnabled)
+                    {
+                        Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            SetHeldKeyState(vk, down);
+                        }));
+
+                        if (ShouldBlockKey(vk))
+                            return (IntPtr)1;
+                    }
+                }
+            }
+
+            return CallNextHookEx(keyboardHook, nCode, wParam, lParam);
+        }
+
+        private void SetHeldKeyState(int vk, bool isDown)
+        {
+            switch (vk)
+            {
+                case VK_LEFT:
+                case VK_A:
+                    leftHeld = isDown;
+                    break;
+
+                case VK_RIGHT:
+                case VK_D:
+                    rightHeld = isDown;
+                    break;
+
+                case VK_UP:
+                case VK_W:
+                case VK_SPACE:
+                    jumpHeld = isDown;
+                    break;
+
+                case VK_Z:
+                    meleeHeld = isDown;
+                    break;
+
+                case VK_X:
+                    fireHeld = isDown;
+                    break;
+
+                case VK_C:
+                    closeHeld = isDown;
+                    break;
+
+                case VK_F:
+                    fastTravelHeld = isDown;
+                    break;
+
+                case VK_E:
+                    statsHeld = isDown;
+                    break;
+
+                case VK_M:
+                    mapHeld = isDown;
+                    break;
+
+                case VK_OEM_2:
+                    potionHeld = isDown;
+                    break;
+
+                case VK_1:
+                    numberHeld[0] = isDown;
+                    break;
+                case VK_2:
+                    numberHeld[1] = isDown;
+                    break;
+                case VK_3:
+                    numberHeld[2] = isDown;
+                    break;
+                case VK_4:
+                    numberHeld[3] = isDown;
+                    break;
+                case VK_5:
+                    numberHeld[4] = isDown;
+                    break;
+                case VK_6:
+                    numberHeld[5] = isDown;
+                    break;
+                case VK_7:
+                    numberHeld[6] = isDown;
+                    break;
+                case VK_8:
+                    numberHeld[7] = isDown;
+                    break;
+                case VK_9:
+                    numberHeld[8] = isDown;
+                    break;
+            }
+        }
+
+        private bool ShouldBlockKey(int vk)
+        {
+            switch (vk)
+            {
+                case VK_LEFT:
+                case VK_UP:
+                case VK_RIGHT:
+                case VK_SPACE:
+                case VK_A:
+                case VK_C:
+                case VK_D:
+                case VK_E:
+                case VK_F:
+                case VK_M:
+                case VK_OEM_2:
+                case VK_W:
+                case VK_X:
+                case VK_Z:
+                case VK_1:
+                case VK_2:
+                case VK_3:
+                case VK_4:
+                case VK_5:
+                case VK_6:
+                case VK_7:
+                case VK_8:
+                case VK_9:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private void ResetHeldInputs()
+        {
+            leftHeld = false;
+            rightHeld = false;
+            jumpHeld = false;
+            meleeHeld = false;
+            fireHeld = false;
+            closeHeld = false;
+            fastTravelHeld = false;
+            statsHeld = false;
+            mapHeld = false;
+            potionHeld = false;
+
+            for (int i = 0; i < numberHeld.Length; i++)
+            {
+                numberHeld[i] = false;
+                numberHeldLastFrame[i] = false;
+            }
+
+            jumpHeldLastFrame = false;
+            meleeHeldLastFrame = false;
+            fireHeldLastFrame = false;
+            closeHeldLastFrame = false;
+            fastTravelHeldLastFrame = false;
+            statsHeldLastFrame = false;
+            mapHeldLastFrame = false;
+            potionHeldLastFrame = false;
+        }
 
         private void SetupTransition()
         {
@@ -310,7 +1021,7 @@ namespace TaskbarRPG
             }
             else
             {
-                ApplyArea(type, entryDir);
+                ApplyArea(type);
 
                 if (entryDir == TransitionDirection.Right)
                     playerX = 10;
@@ -325,7 +1036,7 @@ namespace TaskbarRPG
 
         private void OnTransitionMidpoint(AreaType type, TransitionDirection dir)
         {
-            ApplyArea(type, dir);
+            ApplyArea(type);
 
             if (dir == TransitionDirection.Right)
                 playerX = 10;
@@ -333,16 +1044,87 @@ namespace TaskbarRPG
                 playerX = Width - playerWidth - 10;
 
             velocityX = 0;
+            CloseAllPanels();
         }
 
-        private void ApplyArea(AreaType type, TransitionDirection dir)
+        private void ApplyArea(AreaType type)
         {
+            previousArea = currentArea;
             currentArea = AreaDefinitions.Get(type);
+
+            if (currentArea.Type == AreaType.Town && (previousArea == null || previousArea.Type != AreaType.Town))
+                RefreshTownShops();
+
             groundRect.Fill = new SolidColorBrush(currentArea.GroundColor);
-            UpdateFastTravelMenuText();
+            ClearAreaZoneVisuals();
+            ClearEnemies();
+            ClearProjectiles();
+            SpawnAreaZones(currentArea);
+            SpawnEnemies(currentArea);
+            UpdateExitTexts();
         }
 
-        // ── Window setup ─────────────────────────────────────────────────────────
+        private void RefreshTownShops()
+        {
+            foreach (var zone in AreaDefinitions.Get(AreaType.Town).Zones)
+            {
+                if (zone.Content is not ShopZoneContent shop)
+                    continue;
+
+                shop.Stock.Clear();
+
+                if (shop.ShopType == ShopType.Sword)
+                {
+                    for (int i = 0; i < 3; i++)
+                    {
+                        var sword = ItemFactory.CreateRandomSword(rng);
+                        shop.Stock.Add(new ShopListing
+                        {
+                            Item = sword,
+                            Quantity = 1,
+                            Price = sword.BasePrice
+                        });
+                    }
+                }
+                else if (shop.ShopType == ShopType.Bow)
+                {
+                    for (int i = 0; i < 2; i++)
+                    {
+                        var bow = ItemFactory.CreateRandomBow(rng);
+                        shop.Stock.Add(new ShopListing
+                        {
+                            Item = bow,
+                            Quantity = 1,
+                            Price = bow.BasePrice
+                        });
+                    }
+
+                    var arrow = ItemFactory.CreateArrowItem();
+                    shop.Stock.Add(new ShopListing
+                    {
+                        Item = arrow,
+                        Quantity = 5,
+                        Price = 5
+                    });
+                }
+                else if (shop.ShopType == ShopType.Healing)
+                {
+                    var potion = ItemFactory.CreatePotion();
+                    shop.Stock.Add(new ShopListing
+                    {
+                        Item = potion,
+                        Quantity = 1,
+                        Price = potion.BasePrice
+                    });
+                    shop.Stock.Add(new ShopListing
+                    {
+                        Item = potion,
+                        Quantity = 2,
+                        Price = potion.BasePrice * 2
+                    });
+                }
+            }
+        }
 
         private void PositionAboveTaskbar()
         {
@@ -355,31 +1137,30 @@ namespace TaskbarRPG
                 double screenWidth = SystemParameters.PrimaryScreenWidth;
                 double screenHeight = SystemParameters.PrimaryScreenHeight;
 
-                int left = data.rc.left, top = data.rc.top,
-                    right = data.rc.right, bottom = data.rc.bottom;
+                int left = data.rc.left, top = data.rc.top, right = data.rc.right, bottom = data.rc.bottom;
 
-                if (top > 0 && bottom == screenHeight)          // bottom taskbar
+                if (top > 0 && bottom == screenHeight)
                 {
                     Left = 0;
                     Top = top - playAreaHeight;
                     Width = screenWidth;
                     Height = playAreaHeight;
                 }
-                else if (top == 0 && bottom < screenHeight)     // top taskbar
+                else if (top == 0 && bottom < screenHeight)
                 {
                     Left = 0;
                     Top = bottom;
                     Width = screenWidth;
                     Height = playAreaHeight;
                 }
-                else if (left == 0 && right < screenWidth)      // left taskbar
+                else if (left == 0 && right < screenWidth)
                 {
                     Left = right;
                     Top = 0;
                     Width = playAreaHeight;
                     Height = screenHeight;
                 }
-                else                                             // right taskbar
+                else
                 {
                     Left = left - playAreaHeight;
                     Top = 0;
@@ -403,12 +1184,8 @@ namespace TaskbarRPG
             SetWindowLong(hwnd, GWL_EXSTYLE, extStyle | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW);
         }
 
-        // ── Visual setup ─────────────────────────────────────────────────────────
-
         private void CreateBackground()
         {
-            // No background sky rectangle at all:
-            // everything stays transparent except the ground strip.
             groundRect = new Rectangle
             {
                 Width = Width,
@@ -423,59 +1200,151 @@ namespace TaskbarRPG
             Canvas.SetTop(groundRect, Height - groundStripHeight);
         }
 
-        private void CreateFastTravelMenu()
+        private void CreateHud()
         {
-            fastTravelText = new TextBlock
+            playerHealthBg = new Rectangle
+            {
+                Width = 44,
+                Height = 6,
+                Fill = Brushes.Black,
+                Opacity = 0.7
+            };
+
+            playerHealthFill = new Rectangle
+            {
+                Width = 44,
+                Height = 6,
+                Fill = Brushes.LimeGreen
+            };
+
+            playerHealthText = new TextBlock
             {
                 Foreground = Brushes.White,
-                FontSize = 14,
+                FontSize = 9,
+                FontFamily = new FontFamily("Consolas"),
+                Width = 60,
+                TextAlignment = TextAlignment.Center
+            };
+
+            playerArrowText = new TextBlock
+            {
+                Foreground = Brushes.White,
+                FontSize = 9,
+                FontFamily = new FontFamily("Consolas"),
+                Width = 60,
+                TextAlignment = TextAlignment.Center
+            };
+
+            statusText = new TextBlock
+            {
+                Foreground = Brushes.Gold,
+                FontSize = 12,
+                FontFamily = new FontFamily("Consolas"),
+                Width = 420,
+                TextAlignment = TextAlignment.Center,
+            };
+
+            GameCanvas.Children.Add(playerHealthBg);
+            GameCanvas.Children.Add(playerHealthFill);
+            GameCanvas.Children.Add(playerHealthText);
+            GameCanvas.Children.Add(playerArrowText);
+            GameCanvas.Children.Add(statusText);
+
+            Panel.SetZIndex(playerHealthBg, 40);
+            Panel.SetZIndex(playerHealthFill, 41);
+            Panel.SetZIndex(playerHealthText, 42);
+            Panel.SetZIndex(playerArrowText, 42);
+            Panel.SetZIndex(statusText, 70);
+        }
+
+        private ScrollViewer panelScroll = null!;
+
+        private void CreateMainPanel()
+        {
+            panelText = new TextBlock
+            {
+                Foreground = Brushes.White,
+                FontSize = 13,
                 FontFamily = new FontFamily("Consolas"),
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(10),
             };
 
-            fastTravelPanel = new Border
+            panelScroll = new ScrollViewer
             {
-                Width = 280,
-                Background = new SolidColorBrush(Color.FromArgb(220, 20, 20, 20)),
-                BorderBrush = Brushes.White,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Content = panelText
+            };
+
+            panelBorder = new Border
+            {
+                Width = 430,
+                Background = new SolidColorBrush(Color.FromArgb(228, 18, 18, 18)),
+                BorderBrush = Brushes.Gold,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(6),
-                Child = fastTravelText,
+                Child = panelScroll,
                 Visibility = Visibility.Hidden,
             };
 
-            GameCanvas.Children.Add(fastTravelPanel);
-            Panel.SetZIndex(fastTravelPanel, 50);
+            GameCanvas.Children.Add(panelBorder);
+            Panel.SetZIndex(panelBorder, 60);
 
-            Canvas.SetLeft(fastTravelPanel, 20);
-            Canvas.SetTop(fastTravelPanel, 20);
-
-            UpdateFastTravelMenuText();
+            Canvas.SetLeft(panelBorder, 300);
+            Canvas.SetTop(panelBorder, 8);
         }
 
-        private void UpdateFastTravelMenuText()
+        private void CreateEdgeTexts()
         {
-            if (fastTravelText == null)
-                return;
-
-            var lines = new List<string>
+            leftExitText = new TextBlock
             {
-                "FAST TRAVEL",
-                "",
-                "F7 = open/close",
-                "F8 = toggle control",
-                "",
+                Foreground = Brushes.White,
+                FontSize = 10,
+                FontFamily = new FontFamily("Consolas"),
+                Width = 180,
+                TextAlignment = TextAlignment.Left
             };
 
-            for (int i = 0; i < AreaDefinitions.Ordered.Count && i < 9; i++)
+            rightExitText = new TextBlock
             {
-                var area = AreaDefinitions.Ordered[i];
-                string currentMarker = area.Type == currentArea?.Type ? "  <==" : "";
-                lines.Add($"{i + 1}. {area.Name}{currentMarker}");
+                Foreground = Brushes.White,
+                FontSize = 10,
+                FontFamily = new FontFamily("Consolas"),
+                Width = 180,
+                TextAlignment = TextAlignment.Right
+            };
+
+            GameCanvas.Children.Add(leftExitText);
+            GameCanvas.Children.Add(rightExitText);
+
+            Panel.SetZIndex(leftExitText, 30);
+            Panel.SetZIndex(rightExitText, 30);
+        }
+
+        private void UpdateExitTexts()
+        {
+            if (currentArea.LeftExit.HasValue)
+            {
+                var leftArea = AreaDefinitions.Get(currentArea.LeftExit.Value);
+                leftExitText.Text = $"< {leftArea.Name} (Lv {leftArea.LevelRequirement})";
+                leftExitText.Foreground = playerData.Level >= leftArea.LevelRequirement ? Brushes.White : Brushes.OrangeRed;
+            }
+            else
+            {
+                leftExitText.Text = "";
             }
 
-            fastTravelText.Text = string.Join(Environment.NewLine, lines);
+            if (currentArea.RightExit.HasValue)
+            {
+                var rightArea = AreaDefinitions.Get(currentArea.RightExit.Value);
+                rightExitText.Text = $"{rightArea.Name} (Lv {rightArea.LevelRequirement}) >";
+                rightExitText.Foreground = playerData.Level >= rightArea.LevelRequirement ? Brushes.White : Brushes.OrangeRed;
+            }
+            else
+            {
+                rightExitText.Text = "";
+            }
         }
 
         private void CreatePlayer()
@@ -491,7 +1360,7 @@ namespace TaskbarRPG
 
             attackHitbox = new Rectangle
             {
-                Width = 18,
+                Width = 20,
                 Height = 12,
                 Fill = Brushes.OrangeRed,
                 Visibility = Visibility.Hidden,
@@ -500,8 +1369,8 @@ namespace TaskbarRPG
             GameCanvas.Children.Add(player);
             GameCanvas.Children.Add(attackHitbox);
 
-            Panel.SetZIndex(player, 1);
-            Panel.SetZIndex(attackHitbox, 1);
+            Panel.SetZIndex(player, 20);
+            Panel.SetZIndex(attackHitbox, 21);
 
             groundY = Height - groundStripHeight - playerHeight;
             playerY = groundY;
@@ -510,8 +1379,6 @@ namespace TaskbarRPG
             DrawPlayer();
             DrawAttackHitbox();
         }
-
-        // ── Game loop ────────────────────────────────────────────────────────────
 
         private void StartGameLoop()
         {
@@ -532,166 +1399,836 @@ namespace TaskbarRPG
                 return;
             }
 
-            if (!fastTravelOpen)
+            if (panelMode == PanelMode.None)
             {
                 ApplyPhysics();
                 ResolveCollisions();
+                UpdateEnemies();
+                UpdateProjectiles();
+                HandleEnemyContactWithPlayer();
                 CheckAreaTransition();
                 UpdateAttack();
             }
+            else
+            {
+                velocityX = 0;
+                if (!isAttacking)
+                    attackHitbox.Visibility = Visibility.Hidden;
+            }
 
+            currentInteractableZone = FindInteractableZoneInRange();
+            mapPulseTime += 0.08;
+
+            if (playerDamageCooldownFrames > 0)
+                playerDamageCooldownFrames--;
+
+            if (statusFramesRemaining > 0)
+                statusFramesRemaining--;
+            else
+                statusText.Text = "";
+
+            if (panelMode != PanelMode.None)
+                RenderCurrentPanel();
+
+            UpdateExitTexts();
             DrawPlayer();
             DrawAttackHitbox();
+            DrawPlayerHud();
+            DrawInteractionIndicators();
+            DrawEnemies();
+            DrawProjectiles();
         }
 
         private void RefreshLayoutSizedElements()
         {
             groundRect.Width = Width;
             Canvas.SetTop(groundRect, Height - groundStripHeight);
-
             groundY = Height - groundStripHeight - playerHeight;
 
-            if (fastTravelPanel != null)
-            {
-                Canvas.SetLeft(fastTravelPanel, 20);
-                Canvas.SetTop(fastTravelPanel, 20);
-            }
-        }
+            double panelTop = 8;
+            double bottomSafeMargin = 8;
+            double maxPanelHeight = Math.Max(80, Height - panelTop - bottomSafeMargin);
 
-        // ── Input ────────────────────────────────────────────────────────────────
+            panelBorder.Height = Math.Min(Height - 16, maxPanelHeight);
+
+            Canvas.SetLeft(panelBorder, Math.Max(20, (Width - panelBorder.Width) / 2));
+            Canvas.SetTop(panelBorder, panelTop);
+
+            Canvas.SetLeft(leftExitText, 10);
+            Canvas.SetTop(leftExitText, 12);
+
+            Canvas.SetLeft(rightExitText, Width - 190);
+            Canvas.SetTop(rightExitText, 12);
+
+            Canvas.SetLeft(statusText, Math.Max(20, (Width - statusText.Width) / 2));
+            Canvas.SetTop(statusText, Math.Max(4, Height - 28));
+        }
 
         private void HandleInput()
         {
-            bool togglePressed = IsKeyDown(VK_F8);
-            if (togglePressed && !toggleHeldLastFrame)
-                controlsEnabled = !controlsEnabled;
-            toggleHeldLastFrame = togglePressed;
-
-            bool fastTravelPressed = IsKeyDown(VK_F7);
-            if (fastTravelPressed && !fastTravelHeldLastFrame)
-            {
-                fastTravelOpen = !fastTravelOpen;
-                fastTravelPanel.Visibility = fastTravelOpen ? Visibility.Visible : Visibility.Hidden;
-                UpdateFastTravelMenuText();
-            }
-            fastTravelHeldLastFrame = fastTravelPressed;
-
-            if (fastTravelOpen)
-            {
-                velocityX = 0;
-                jumpHeldLastFrame = false;
-                attackHeldLastFrame = false;
-
-                HandleFastTravelSelection();
-                return;
-            }
+            bool jumpPressedThisFrame = jumpHeld && !jumpHeldLastFrame;
+            bool meleePressedThisFrame = meleeHeld && !meleeHeldLastFrame;
+            bool firePressedThisFrame = fireHeld && !fireHeldLastFrame;
+            bool closePressedThisFrame = closeHeld && !closeHeldLastFrame;
+            bool fastPressedThisFrame = fastTravelHeld && !fastTravelHeldLastFrame;
+            bool statsPressedThisFrame = statsHeld && !statsHeldLastFrame;
+            bool mapPressedThisFrame = mapHeld && !mapHeldLastFrame;
+            bool potionPressedThisFrame = potionHeld && !potionHeldLastFrame;
 
             if (!controlsEnabled)
             {
                 velocityX = 0;
-                jumpHeldLastFrame = false;
-                attackHeldLastFrame = false;
+                CacheLastFrameInput();
                 return;
             }
 
-            bool left = IsKeyDown(VK_LEFT) || IsKeyDown(VK_A);
-            bool right = IsKeyDown(VK_RIGHT) || IsKeyDown(VK_D);
-            bool jump = IsKeyDown(VK_SPACE) || IsKeyDown(VK_UP) || IsKeyDown(VK_W);
-            bool attack = IsKeyDown(VK_Z);
+            if (closePressedThisFrame)
+            {
+                CloseAllPanels();
+                CacheLastFrameInput();
+                return;
+            }
+
+            if (fastPressedThisFrame)
+            {
+                TogglePanel(PanelMode.FastTravel);
+                CacheLastFrameInput();
+                return;
+            }
+
+            if (statsPressedThisFrame)
+            {
+                TogglePanel(PanelMode.Stats);
+                CacheLastFrameInput();
+                return;
+            }
+
+            if (mapPressedThisFrame)
+            {
+                TogglePanel(PanelMode.Map);
+                CacheLastFrameInput();
+                return;
+            }
+
+            if (potionPressedThisFrame && panelMode == PanelMode.None)
+            {
+                UsePotion();
+            }
+
+            if (panelMode == PanelMode.FastTravel)
+            {
+                HandleFastTravelSelection();
+                CacheLastFrameInput();
+                return;
+            }
+
+            if (panelMode == PanelMode.ShopMain || panelMode == PanelMode.ShopBuy || panelMode == PanelMode.ShopSell)
+            {
+                HandleShopSelection();
+                CacheLastFrameInput();
+                return;
+            }
+
+            if (panelMode == PanelMode.Stats)
+            {
+                HandleStatsSelection();
+                CacheLastFrameInput();
+                return;
+            }
+
+            if (panelMode == PanelMode.EquipSword || panelMode == PanelMode.EquipBow)
+            {
+                HandleEquipSelection();
+                CacheLastFrameInput();
+                return;
+            }
+
+            if (panelMode == PanelMode.Map)
+            {
+                velocityX = 0;
+                CacheLastFrameInput();
+                return;
+            }
 
             velocityX = 0;
-            if (left && !right)
+            if (leftHeld && !rightHeld)
             {
                 velocityX = -moveSpeed;
                 facingRight = false;
             }
-            if (right && !left)
+            if (rightHeld && !leftHeld)
             {
                 velocityX = moveSpeed;
                 facingRight = true;
             }
 
-            if (jump && !jumpHeldLastFrame && isOnGround)
+            if (jumpPressedThisFrame && isOnGround)
             {
                 velocityY = jumpStrength;
                 isOnGround = false;
             }
 
-            if (attack && !attackHeldLastFrame && !isAttacking)
-                StartAttack();
+            if (meleePressedThisFrame)
+            {
+                var interactable = FindInteractableZoneInRange();
 
-            jumpHeldLastFrame = jump;
-            attackHeldLastFrame = attack;
+                if (interactable != null)
+                {
+                    InteractWithZone(interactable);
+                }
+                else if (!isAttacking)
+                {
+                    StartMeleeAttack();
+                }
+            }
+
+            if (firePressedThisFrame && panelMode == PanelMode.None)
+            {
+                FireBow();
+            }
+
+            CacheLastFrameInput();
+        }
+
+        private void CacheLastFrameInput()
+        {
+            jumpHeldLastFrame = jumpHeld;
+            meleeHeldLastFrame = meleeHeld;
+            fireHeldLastFrame = fireHeld;
+            closeHeldLastFrame = closeHeld;
+            fastTravelHeldLastFrame = fastTravelHeld;
+            statsHeldLastFrame = statsHeld;
+            mapHeldLastFrame = mapHeld;
+            potionHeldLastFrame = potionHeld;
+
+            for (int i = 0; i < numberHeld.Length; i++)
+                numberHeldLastFrame[i] = numberHeld[i];
+        }
+
+        private void TogglePanel(PanelMode mode)
+        {
+            if (panelMode == mode)
+            {
+                CloseAllPanels();
+            }
+            else
+            {
+                panelMode = mode;
+                panelBorder.Visibility = Visibility.Visible;
+                activeShop = null;
+                RenderCurrentPanel();
+            }
+        }
+
+        private void CloseAllPanels()
+        {
+            panelMode = PanelMode.None;
+            panelBorder.Visibility = Visibility.Hidden;
+            panelText.Text = "";
+            activeShop = null;
+        }
+
+        private void HandleStatsSelection()
+        {
+            int index = GetPressedNumberIndex();
+            if (index < 0)
+                return;
+
+            int number = index + 1;
+
+            if (number == 1)
+            {
+                panelMode = PanelMode.EquipSword;
+                RenderCurrentPanel();
+            }
+            else if (number == 2)
+            {
+                panelMode = PanelMode.EquipBow;
+                RenderCurrentPanel();
+            }
+        }
+
+        private void HandleEquipSelection()
+        {
+            int index = GetPressedNumberIndex();
+            if (index < 0)
+                return;
+
+            int number = index + 1;
+
+            if (number == 9)
+            {
+                panelMode = PanelMode.Stats;
+                RenderCurrentPanel();
+                return;
+            }
+
+            if (panelMode == PanelMode.EquipSword)
+            {
+                var swords = playerData.Inventory
+                    .Where(i => i.Item is WeaponItem w && w.WeaponCategory == WeaponCategory.Sword)
+                    .ToList();
+
+                if (index < swords.Count)
+                {
+                    playerData.EquippedSword = (WeaponItem)swords[index].Item;
+                    ShowStatus($"Equipped {playerData.EquippedSword.Name}", 60);
+                    RenderCurrentPanel();
+                }
+                return;
+            }
+
+            if (panelMode == PanelMode.EquipBow)
+            {
+                var bows = playerData.Inventory
+                    .Where(i => i.Item is WeaponItem w && w.WeaponCategory == WeaponCategory.Bow)
+                    .ToList();
+
+                if (index < bows.Count)
+                {
+                    playerData.EquippedBow = (WeaponItem)bows[index].Item;
+                    ShowStatus($"Equipped {playerData.EquippedBow.Name}", 60);
+                    RenderCurrentPanel();
+                }
+            }
+        }
+        private void RenderCurrentPanel()
+        {
+            switch (panelMode)
+            {
+                case PanelMode.FastTravel:
+                    RenderFastTravelPanel();
+                    break;
+                case PanelMode.Stats:
+                    RenderStatsPanel();
+                    break;
+                case PanelMode.Map:
+                    RenderMapPanel();
+                    break;
+                case PanelMode.ShopMain:
+                    RenderShopMainPanel();
+                    break;
+                case PanelMode.ShopBuy:
+                    RenderShopBuyPanel();
+                    break;
+                case PanelMode.ShopSell:
+                    RenderShopSellPanel();
+                    break;
+                case PanelMode.EquipSword:
+                    RenderEquipSwordPanel();
+                    break;
+                case PanelMode.EquipBow:
+                    RenderEquipBowPanel();
+                    break;
+            }
+        }
+
+        private void RenderFastTravelPanel()
+        {
+            var lines = new List<string>
+            {
+                "FAST TRAVEL",
+                "",
+                "Choose destination with number keys:",
+                ""
+            };
+
+            for (int i = 0; i < AreaDefinitions.Ordered.Count && i < 9; i++)
+            {
+                var area = AreaDefinitions.Ordered[i];
+                string marker = area.Type == currentArea.Type ? "  <== CURRENT" : "";
+                string lockText = playerData.Level >= area.LevelRequirement ? "" : $" [LOCKED Lv {area.LevelRequirement}]";
+                lines.Add($"{i + 1}. {area.Name}{lockText}{marker}");
+            }
+
+            lines.Add("");
+            lines.Add("C = close");
+
+            panelText.Text = string.Join(Environment.NewLine, lines);
+        }
+
+        private void RenderEquipSwordPanel()
+        {
+            var swords = playerData.Inventory
+                .Where(i => i.Item is WeaponItem w && w.WeaponCategory == WeaponCategory.Sword)
+                .ToList();
+
+            var lines = new List<string>
+    {
+        "EQUIP SWORD",
+        "",
+        $"Current: {playerData.EquippedSword.GetDisplayText()}",
+        ""
+    };
+
+            if (swords.Count == 0)
+            {
+                lines.Add("No swords owned.");
+            }
+            else
+            {
+                for (int i = 0; i < swords.Count && i < 8; i++)
+                {
+                    var weapon = (WeaponItem)swords[i].Item;
+                    string marker = ReferenceEquals(weapon, playerData.EquippedSword) ? "  <== EQUIPPED" : "";
+                    lines.Add($"{i + 1}. {weapon.GetDisplayText()}{marker}");
+                }
+            }
+
+            lines.Add("");
+            lines.Add("9. Back");
+            lines.Add("C = close");
+
+            panelText.Text = string.Join(Environment.NewLine, lines);
+        }
+
+        private void RenderEquipBowPanel()
+        {
+            var bows = playerData.Inventory
+                .Where(i => i.Item is WeaponItem w && w.WeaponCategory == WeaponCategory.Bow)
+                .ToList();
+
+            var lines = new List<string>
+    {
+        "EQUIP BOW",
+        "",
+        $"Current: {playerData.EquippedBow.GetDisplayText()}",
+        ""
+    };
+
+            if (bows.Count == 0)
+            {
+                lines.Add("No bows owned.");
+            }
+            else
+            {
+                for (int i = 0; i < bows.Count && i < 8; i++)
+                {
+                    var weapon = (WeaponItem)bows[i].Item;
+                    string marker = ReferenceEquals(weapon, playerData.EquippedBow) ? "  <== EQUIPPED" : "";
+                    lines.Add($"{i + 1}. {weapon.GetDisplayText()}{marker}");
+                }
+            }
+
+            lines.Add("");
+            lines.Add("9. Back");
+            lines.Add("C = close");
+
+            panelText.Text = string.Join(Environment.NewLine, lines);
+        }
+        private void RenderStatsPanel()
+        {
+            string items = GetInventorySummary();
+
+            panelText.Text =
+                "PLAYER STATS\n\n" +
+                $"Level: {playerData.Level}\n" +
+                $"XP: {playerData.Experience}/{playerData.NextLevelXp}\n" +
+                $"Health: {playerData.Health}/{playerData.MaxHealth}\n" +
+                $"Gold: {playerData.Gold}\n" +
+                $"Base Damage: {playerData.BaseDamage}\n" +
+                $"Sword: {playerData.EquippedSword.GetDisplayText()}\n" +
+                $"Bow: {playerData.EquippedBow.GetDisplayText()}\n" +
+                $"Location: {currentArea.Name}\n" +
+                $"Items: {items}\n\n" +
+                "1. Equip Sword\n" +
+                "2. Equip Bow\n\n" +
+                "Use number keys.\n" +
+                "C = close";
+        }
+
+        private void RenderMapPanel()
+        {
+            var ordered = AreaDefinitions.Ordered;
+            int currentIndex = ordered.FindIndex(a => a.Type == currentArea.Type);
+
+            string[] names = ordered.Select(a => $"{a.Name}(Lv{a.LevelRequirement})").ToArray();
+            string mapLine = string.Join(" -- ", names);
+
+            List<int> centers = new();
+            int cursor = 0;
+            for (int i = 0; i < names.Length; i++)
+            {
+                int start = cursor;
+                int len = names[i].Length;
+                centers.Add(start + (len / 2));
+                cursor += len;
+                if (i < names.Length - 1)
+                    cursor += 4;
+            }
+
+            char[] markerLine = new string(' ', mapLine.Length).ToCharArray();
+            char[] pulseLine = new string(' ', mapLine.Length).ToCharArray();
+
+            if (currentIndex >= 0 && currentIndex < centers.Count)
+            {
+                int pos = centers[currentIndex];
+                if (pos >= 0 && pos < markerLine.Length)
+                    markerLine[pos] = '^';
+
+                bool pulseOn = Math.Sin(mapPulseTime) > 0;
+                if (pos >= 0 && pos < pulseLine.Length)
+                    pulseLine[pos] = pulseOn ? '*' : 'o';
+            }
+
+            panelText.Text =
+                "WORLD MAP\n\n" +
+                new string(markerLine) + "\n" +
+                mapLine + "\n" +
+                new string(pulseLine) + "\n\n" +
+                $"Current Area: {currentArea.Name}\n\n" +
+                "C = close";
+        }
+
+        private void RenderShopMainPanel()
+        {
+            if (activeShop == null)
+            {
+                CloseAllPanels();
+                return;
+            }
+
+            panelText.Text =
+                $"{activeShop.NpcName}\n\n" +
+                $"Welcome to the {activeShop.DisplayName}.\n\n" +
+                $"Gold: {playerData.Gold}\n\n" +
+                "1. Buy\n" +
+                "2. Sell\n" +
+                "3. Leave\n\n" +
+                "Use number keys.\n" +
+                "C = close";
+        }
+
+        private void RenderShopBuyPanel()
+        {
+            if (activeShop == null)
+            {
+                CloseAllPanels();
+                return;
+            }
+
+            var lines = new List<string>
+            {
+                $"{activeShop.DisplayName} - BUY",
+                "",
+                $"Gold: {playerData.Gold}",
+                ""
+            };
+
+            for (int i = 0; i < activeShop.Stock.Count && i < 8; i++)
+                lines.Add($"{i + 1}. {activeShop.Stock[i].GetDisplayText()}");
+
+            lines.Add("");
+            lines.Add("Press number to buy.");
+            lines.Add("9. Back");
+            lines.Add("C = close");
+
+            panelText.Text = string.Join(Environment.NewLine, lines);
+        }
+
+        private void RenderShopSellPanel()
+        {
+            if (activeShop == null)
+            {
+                CloseAllPanels();
+                return;
+            }
+
+            var sellable = GetSellableInventory();
+            var lines = new List<string>
+            {
+                $"{activeShop.DisplayName} - SELL",
+                "",
+                $"Gold: {playerData.Gold}",
+                ""
+            };
+
+            if (sellable.Count == 0)
+            {
+                lines.Add("Nothing to sell.");
+            }
+            else
+            {
+                for (int i = 0; i < sellable.Count && i < 8; i++)
+                {
+                    var entry = sellable[i];
+                    int sellPrice = Math.Max(1, entry.Item.BasePrice / 2);
+                    string qty = entry.Quantity > 1 ? $" x{entry.Quantity}" : "";
+                    lines.Add($"{i + 1}. {entry.Item.GetDisplayText()}{qty} - {sellPrice}g");
+                }
+            }
+
+            lines.Add("");
+            lines.Add("Press number to sell one.");
+            lines.Add("9. Back");
+            lines.Add("C = close");
+
+            panelText.Text = string.Join(Environment.NewLine, lines);
+        }
+
+        private int GetPressedNumberIndex()
+        {
+            for (int i = 0; i < numberHeld.Length; i++)
+            {
+                if (numberHeld[i] && !numberHeldLastFrame[i])
+                    return i;
+            }
+
+            return -1;
         }
 
         private void HandleFastTravelSelection()
         {
-            int[] keys = { VK_1, VK_2, VK_3, VK_4, VK_5, VK_6, VK_7, VK_8, VK_9 };
+            int index = GetPressedNumberIndex();
+            if (index < 0)
+                return;
 
-            for (int i = 0; i < keys.Length; i++)
+            if (index < AreaDefinitions.Ordered.Count)
             {
-                bool pressed = IsKeyDown(keys[i]);
+                var target = AreaDefinitions.Ordered[index];
 
-                if (pressed && !numberHeldLastFrame[i])
+                if (playerData.Level < target.LevelRequirement)
                 {
-                    if (i < AreaDefinitions.Ordered.Count)
-                    {
-                        var target = AreaDefinitions.Ordered[i].Type;
-
-                        if (target != currentArea.Type)
-                        {
-                            fastTravelOpen = false;
-                            fastTravelPanel.Visibility = Visibility.Hidden;
-
-                            // Pick a sensible direction based on menu order
-                            int currentIndex = AreaDefinitions.Ordered.FindIndex(a => a.Type == currentArea.Type);
-                            TransitionDirection dir = i >= currentIndex
-                                ? TransitionDirection.Right
-                                : TransitionDirection.Left;
-
-                            LoadArea(target, dir, animate: true);
-                        }
-                        else
-                        {
-                            fastTravelOpen = false;
-                            fastTravelPanel.Visibility = Visibility.Hidden;
-                        }
-                    }
+                    ShowStatus($"Need Lv {target.LevelRequirement} for {target.Name}", 80);
+                    return;
                 }
 
-                numberHeldLastFrame[i] = pressed;
+                if (target.Type != currentArea.Type)
+                {
+                    int currentIndex = AreaDefinitions.Ordered.FindIndex(a => a.Type == currentArea.Type);
+                    TransitionDirection dir = index >= currentIndex
+                        ? TransitionDirection.Right
+                        : TransitionDirection.Left;
+
+                    CloseAllPanels();
+                    LoadArea(target.Type, dir, animate: true);
+                }
             }
         }
 
-        // ── Area transitions ─────────────────────────────────────────────────────
+        private void HandleShopSelection()
+        {
+            int index = GetPressedNumberIndex();
+            if (index < 0 || activeShop == null)
+                return;
+
+            int number = index + 1;
+
+            if (panelMode == PanelMode.ShopMain)
+            {
+                if (number == 1)
+                {
+                    panelMode = PanelMode.ShopBuy;
+                    RenderCurrentPanel();
+                }
+                else if (number == 2)
+                {
+                    panelMode = PanelMode.ShopSell;
+                    RenderCurrentPanel();
+                }
+                else if (number == 3)
+                {
+                    CloseAllPanels();
+                }
+                return;
+            }
+
+            if (panelMode == PanelMode.ShopBuy)
+            {
+                if (number == 9)
+                {
+                    panelMode = PanelMode.ShopMain;
+                    RenderCurrentPanel();
+                    return;
+                }
+
+                if (index < activeShop.Stock.Count)
+                {
+                    BuyShopListing(activeShop.Stock[index]);
+                    RenderCurrentPanel();
+                }
+                return;
+            }
+
+            if (panelMode == PanelMode.ShopSell)
+            {
+                if (number == 9)
+                {
+                    panelMode = PanelMode.ShopMain;
+                    RenderCurrentPanel();
+                    return;
+                }
+
+                var sellable = GetSellableInventory();
+                if (index < sellable.Count)
+                {
+                    SellInventoryEntry(sellable[index]);
+                    RenderCurrentPanel();
+                }
+            }
+        }
+
+        private void BuyShopListing(ShopListing listing)
+        {
+            if (playerData.Gold < listing.Price)
+            {
+                ShowStatus("Not enough gold", 60);
+                return;
+            }
+
+            playerData.Gold -= listing.Price;
+
+            if (listing.Item is WeaponItem weapon)
+            {
+                var purchasedWeapon = CloneWeapon(weapon);
+                AddItemToInventory(purchasedWeapon, 1);
+
+                if (weapon.WeaponCategory == WeaponCategory.Sword)
+                {
+                    playerData.EquippedSword = purchasedWeapon;
+                    ShowStatus($"Bought and equipped {purchasedWeapon.Name}", 70);
+                }
+                else
+                {
+                    playerData.EquippedBow = purchasedWeapon;
+                    ShowStatus($"Bought and equipped {purchasedWeapon.Name}", 70);
+                }
+            }
+            else
+            {
+                AddItemToInventory(CloneItem(listing.Item), listing.Quantity);
+                ShowStatus($"Bought {listing.Item.Name} x{listing.Quantity}", 70);
+            }
+        }
+
+        private void SellInventoryEntry(InventoryEntry entry)
+        {
+            int sellPrice = Math.Max(1, entry.Item.BasePrice / 2);
+            RemoveItemFromInventory(entry.Item, 1);
+            playerData.Gold += sellPrice;
+            ShowStatus($"Sold {entry.Item.Name} for {sellPrice}g", 60);
+        }
 
         private void CheckAreaTransition()
         {
             if (playerX > Width - playerWidth && currentArea.RightExit.HasValue)
             {
-                LoadArea(currentArea.RightExit.Value, TransitionDirection.Right);
+                var target = AreaDefinitions.Get(currentArea.RightExit.Value);
+                if (playerData.Level < target.LevelRequirement)
+                {
+                    playerX = Width - playerWidth;
+                    ShowStatus($"Need Lv {target.LevelRequirement} for {target.Name}", 80);
+                }
+                else
+                {
+                    LoadArea(currentArea.RightExit.Value, TransitionDirection.Right);
+                }
             }
             else if (playerX < 0 && currentArea.LeftExit.HasValue)
             {
-                LoadArea(currentArea.LeftExit.Value, TransitionDirection.Left);
+                var target = AreaDefinitions.Get(currentArea.LeftExit.Value);
+                if (playerData.Level < target.LevelRequirement)
+                {
+                    playerX = 0;
+                    ShowStatus($"Need Lv {target.LevelRequirement} for {target.Name}", 80);
+                }
+                else
+                {
+                    LoadArea(currentArea.LeftExit.Value, TransitionDirection.Left);
+                }
             }
         }
 
-        // ── Attack ───────────────────────────────────────────────────────────────
-
-        private void StartAttack()
+        private void StartMeleeAttack()
         {
             isAttacking = true;
             attackFramesRemaining = attackDurationFrames;
             player.Fill = Brushes.Yellow;
             attackHitbox.Visibility = Visibility.Visible;
+
+            ApplyMeleeDamageNow();
+        }
+
+        private void ApplyMeleeDamageNow()
+        {
+            DrawAttackHitbox();
+
+            Rect attackRect = new Rect(
+                Canvas.GetLeft(attackHitbox),
+                Canvas.GetTop(attackHitbox),
+                attackHitbox.Width,
+                attackHitbox.Height);
+
+            int damage = playerData.BaseDamage + playerData.EquippedSword.Damage;
+
+            foreach (var enemy in activeEnemies.ToList())
+            {
+                if (!enemy.IsAlive)
+                    continue;
+
+                Rect enemyRect = new Rect(enemy.X, enemy.Y, enemy.Body.Width, enemy.Body.Height);
+                if (attackRect.IntersectsWith(enemyRect))
+                    DamageEnemy(enemy, damage);
+            }
+        }
+
+        private void FireBow()
+        {
+            if (playerData.EquippedBow == null)
+            {
+                ShowStatus("No bow equipped", 50);
+                return;
+            }
+
+            if (!playerData.RemoveArrows(1))
+            {
+                ShowStatus("Out of arrows", 50);
+                return;
+            }
+
+            int damage = playerData.BaseDamage + playerData.EquippedBow.Damage;
+
+            var body = new Rectangle
+            {
+                Width = 12,
+                Height = 3,
+                Fill = Brushes.SandyBrown,
+                RadiusX = 1,
+                RadiusY = 1
+            };
+
+            GameCanvas.Children.Add(body);
+            Panel.SetZIndex(body, 22);
+
+            double startX = facingRight
+                ? playerX + playerWidth + 2
+                : playerX - 12;
+
+            double startY = playerY + 12;
+
+            activeProjectiles.Add(new ArrowProjectile
+            {
+                Body = body,
+                X = startX,
+                Y = startY,
+                Direction = facingRight ? 1 : -1,
+                Speed = 8.5,
+                MaxDistance = 280,
+                DistanceTraveled = 0,
+                Damage = damage,
+                IsAlive = true
+            });
         }
 
         private void UpdateAttack()
         {
             if (!isAttacking)
             {
-                player.Fill = controlsEnabled ? Brushes.Red : Brushes.DarkGray;
+                if (playerDamageCooldownFrames > 0)
+                    player.Fill = Brushes.OrangeRed;
+                else
+                    player.Fill = controlsEnabled ? Brushes.Red : Brushes.DarkGray;
+
                 attackHitbox.Visibility = Visibility.Hidden;
                 return;
             }
@@ -701,12 +2238,13 @@ namespace TaskbarRPG
             if (attackFramesRemaining <= 0)
             {
                 isAttacking = false;
-                player.Fill = controlsEnabled ? Brushes.Red : Brushes.DarkGray;
+                player.Fill = playerDamageCooldownFrames > 0
+                    ? Brushes.OrangeRed
+                    : (controlsEnabled ? Brushes.Red : Brushes.DarkGray);
+
                 attackHitbox.Visibility = Visibility.Hidden;
             }
         }
-
-        // ── Physics & collision ──────────────────────────────────────────────────
 
         private void ApplyPhysics()
         {
@@ -719,7 +2257,6 @@ namespace TaskbarRPG
         {
             isOnGround = false;
 
-            // Let the player cross the edge a tiny bit so transitions can trigger naturally
             if (playerX < -2) playerX = -2;
             if (playerX > Width - playerWidth + 2) playerX = Width - playerWidth + 2;
 
@@ -737,7 +2274,558 @@ namespace TaskbarRPG
             }
         }
 
-        // ── Drawing ──────────────────────────────────────────────────────────────
+        private void SpawnAreaZones(Area area)
+        {
+            foreach (var zone in area.Zones)
+            {
+                if (zone.Content == null)
+                    continue;
+
+                var building = new Rectangle
+                {
+                    Width = 96,
+                    Height = 52,
+                    Fill = new SolidColorBrush(zone.Content.BuildingColor),
+                    Stroke = Brushes.Black,
+                    StrokeThickness = 1,
+                    RadiusX = 4,
+                    RadiusY = 4,
+                };
+
+                var buildingLabel = new TextBlock
+                {
+                    Text = zone.Content.DisplayName,
+                    Foreground = Brushes.White,
+                    FontSize = 11,
+                    FontFamily = new FontFamily("Consolas"),
+                    Width = 110,
+                    TextAlignment = TextAlignment.Center,
+                };
+
+                var npc = new Rectangle
+                {
+                    Width = 16,
+                    Height = 24,
+                    Fill = new SolidColorBrush(zone.Content.NpcColor),
+                    Stroke = Brushes.Black,
+                    StrokeThickness = 1,
+                    RadiusX = 3,
+                    RadiusY = 3,
+                };
+
+                var npcLabel = new TextBlock
+                {
+                    Text = zone.Content.NpcName,
+                    Foreground = Brushes.White,
+                    FontSize = 10,
+                    FontFamily = new FontFamily("Consolas"),
+                    Width = 90,
+                    TextAlignment = TextAlignment.Center,
+                };
+
+                GameCanvas.Children.Add(building);
+                GameCanvas.Children.Add(buildingLabel);
+                GameCanvas.Children.Add(npc);
+                GameCanvas.Children.Add(npcLabel);
+
+                Panel.SetZIndex(building, 3);
+                Panel.SetZIndex(buildingLabel, 4);
+                Panel.SetZIndex(npc, 6);
+                Panel.SetZIndex(npcLabel, 7);
+
+                double floorLine = groundY + playerHeight;
+                double buildingX = zone.X;
+                double buildingY = floorLine - building.Height;
+                double npcX = zone.X + 36;
+                double npcY = floorLine - npc.Height;
+
+                Canvas.SetLeft(building, buildingX);
+                Canvas.SetTop(building, buildingY);
+
+                Canvas.SetLeft(buildingLabel, buildingX - 7);
+                Canvas.SetTop(buildingLabel, buildingY - 18);
+
+                Canvas.SetLeft(npc, npcX);
+                Canvas.SetTop(npc, npcY);
+
+                Canvas.SetLeft(npcLabel, npcX - 37);
+                Canvas.SetTop(npcLabel, npcY - 16);
+
+                activeZoneVisuals.Add(new SpawnedZoneVisual
+                {
+                    Zone = zone,
+                    Building = building,
+                    BuildingLabel = buildingLabel,
+                    Npc = npc,
+                    NpcLabel = npcLabel
+                });
+            }
+        }
+
+        private void ClearAreaZoneVisuals()
+        {
+            foreach (var visual in activeZoneVisuals)
+            {
+                GameCanvas.Children.Remove(visual.Building);
+                GameCanvas.Children.Remove(visual.BuildingLabel);
+                GameCanvas.Children.Remove(visual.Npc);
+                GameCanvas.Children.Remove(visual.NpcLabel);
+            }
+
+            activeZoneVisuals.Clear();
+            currentInteractableZone = null;
+        }
+
+        private SpawnedZoneVisual? FindInteractableZoneInRange()
+        {
+            foreach (var visual in activeZoneVisuals)
+            {
+                double npcX = Canvas.GetLeft(visual.Npc);
+                double npcY = Canvas.GetTop(visual.Npc);
+
+                double npcCenterX = npcX + visual.Npc.Width / 2;
+                double playerCenterX = playerX + playerWidth / 2;
+
+                double distanceX = Math.Abs(playerCenterX - npcCenterX);
+                double distanceY = Math.Abs(playerY - npcY);
+
+                bool inRange = distanceX <= 38 && distanceY <= 30;
+                if (!inRange)
+                    continue;
+
+                bool facingNpc =
+                    (facingRight && npcCenterX >= playerCenterX - 4) ||
+                    (!facingRight && npcCenterX <= playerCenterX + 4);
+
+                if (facingNpc)
+                    return visual;
+            }
+
+            return null;
+        }
+
+        private void InteractWithZone(SpawnedZoneVisual visual)
+        {
+            if (visual.Zone.Content is ShopZoneContent shop)
+            {
+                activeShop = shop;
+                panelMode = PanelMode.ShopMain;
+                panelBorder.Visibility = Visibility.Visible;
+                RenderCurrentPanel();
+            }
+        }
+
+        private void DrawInteractionIndicators()
+        {
+            foreach (var visual in activeZoneVisuals)
+            {
+                if (visual == currentInteractableZone)
+                {
+                    visual.Npc.Stroke = Brushes.Gold;
+                    visual.Npc.StrokeThickness = 2;
+                    visual.NpcLabel.Text = $"{visual.Zone.Content!.NpcName} [Z]";
+                }
+                else
+                {
+                    visual.Npc.Stroke = Brushes.Black;
+                    visual.Npc.StrokeThickness = 1;
+                    visual.NpcLabel.Text = visual.Zone.Content!.NpcName;
+                }
+            }
+        }
+
+        private void SpawnEnemies(Area area)
+        {
+            if (area.Type == AreaType.Town)
+                return;
+
+            foreach (var def in area.EnemySpawns)
+            {
+                var body = new Rectangle
+                {
+                    Width = def.Width,
+                    Height = def.Height,
+                    Fill = new SolidColorBrush(def.Color),
+                    Stroke = Brushes.Black,
+                    StrokeThickness = 1,
+                    RadiusX = 4,
+                    RadiusY = 4,
+                };
+
+                var label = new TextBlock
+                {
+                    Text = def.Name,
+                    Foreground = Brushes.White,
+                    FontSize = 10,
+                    FontFamily = new FontFamily("Consolas"),
+                    Width = 70,
+                    TextAlignment = TextAlignment.Center
+                };
+
+                var healthBg = new Rectangle
+                {
+                    Width = 28,
+                    Height = 4,
+                    Fill = Brushes.Black,
+                    Opacity = 0.7
+                };
+
+                var healthFill = new Rectangle
+                {
+                    Width = 28,
+                    Height = 4,
+                    Fill = Brushes.LimeGreen
+                };
+
+                GameCanvas.Children.Add(body);
+                GameCanvas.Children.Add(label);
+                GameCanvas.Children.Add(healthBg);
+                GameCanvas.Children.Add(healthFill);
+
+                Panel.SetZIndex(body, 12);
+                Panel.SetZIndex(label, 13);
+                Panel.SetZIndex(healthBg, 14);
+                Panel.SetZIndex(healthFill, 15);
+
+                double floorLine = groundY + playerHeight;
+
+                activeEnemies.Add(new SpawnedEnemy
+                {
+                    Definition = def,
+                    Body = body,
+                    Label = label,
+                    HealthBg = healthBg,
+                    HealthFill = healthFill,
+                    X = def.X,
+                    Y = floorLine - def.Height,
+                    LeftBound = Math.Max(10, def.X - def.PatrolRange),
+                    RightBound = Math.Min(Width - def.Width - 10, def.X + def.PatrolRange),
+                    Speed = def.Speed,
+                    Direction = 1,
+                    IsAlive = true,
+                    CurrentHealth = def.MaxHealth
+                });
+            }
+        }
+
+        private void ClearEnemies()
+        {
+            foreach (var enemy in activeEnemies)
+            {
+                GameCanvas.Children.Remove(enemy.Body);
+                GameCanvas.Children.Remove(enemy.Label);
+                GameCanvas.Children.Remove(enemy.HealthBg);
+                GameCanvas.Children.Remove(enemy.HealthFill);
+            }
+
+            activeEnemies.Clear();
+        }
+
+        private void UpdateEnemies()
+        {
+            foreach (var enemy in activeEnemies)
+            {
+                if (!enemy.IsAlive)
+                    continue;
+
+                double playerCenterX = playerX + playerWidth / 2;
+                double enemyCenterX = enemy.X + enemy.Body.Width / 2;
+                double distanceToPlayer = Math.Abs(playerCenterX - enemyCenterX);
+
+                if (distanceToPlayer <= enemy.Definition.AggroRange)
+                {
+                    enemy.Direction = playerCenterX >= enemyCenterX ? 1 : -1;
+                    enemy.X += enemy.Speed * enemy.Direction;
+                }
+                else
+                {
+                    enemy.X += enemy.Speed * enemy.Direction;
+
+                    if (enemy.X <= enemy.LeftBound)
+                    {
+                        enemy.X = enemy.LeftBound;
+                        enemy.Direction = 1;
+                    }
+                    else if (enemy.X >= enemy.RightBound)
+                    {
+                        enemy.X = enemy.RightBound;
+                        enemy.Direction = -1;
+                    }
+                }
+
+                enemy.X = Math.Max(0, Math.Min(Width - enemy.Body.Width, enemy.X));
+                enemy.Y = groundY + playerHeight - enemy.Body.Height;
+            }
+        }
+
+        private void DrawEnemies()
+        {
+            foreach (var enemy in activeEnemies)
+            {
+                if (!enemy.IsAlive)
+                    continue;
+
+                Canvas.SetLeft(enemy.Body, enemy.X);
+                Canvas.SetTop(enemy.Body, enemy.Y);
+
+                Canvas.SetLeft(enemy.Label, enemy.X - 26);
+                Canvas.SetTop(enemy.Label, enemy.Y - 14);
+
+                Canvas.SetLeft(enemy.HealthBg, enemy.X - 5);
+                Canvas.SetTop(enemy.HealthBg, enemy.Y - 22);
+
+                double hpRatio = enemy.Definition.MaxHealth > 0
+                    ? (double)enemy.CurrentHealth / enemy.Definition.MaxHealth
+                    : 0;
+
+                enemy.HealthFill.Width = 28 * Math.Max(0, hpRatio);
+                Canvas.SetLeft(enemy.HealthFill, enemy.X - 5);
+                Canvas.SetTop(enemy.HealthFill, enemy.Y - 22);
+            }
+        }
+
+        private void HandleEnemyContactWithPlayer()
+        {
+            if (playerDamageCooldownFrames > 0)
+                return;
+
+            Rect playerRect = new Rect(playerX, playerY, playerWidth, playerHeight);
+
+            foreach (var enemy in activeEnemies)
+            {
+                if (!enemy.IsAlive)
+                    continue;
+
+                Rect enemyRect = new Rect(enemy.X, enemy.Y, enemy.Body.Width, enemy.Body.Height);
+                if (playerRect.IntersectsWith(enemyRect))
+                {
+                    playerData.Health = Math.Max(0, playerData.Health - enemy.Definition.ContactDamage);
+                    playerDamageCooldownFrames = PlayerDamageCooldownMax;
+                    player.Fill = Brushes.OrangeRed;
+                    ShowStatus($"Hit by {enemy.Definition.Name}!", 35);
+                    break;
+                }
+            }
+        }
+
+        private void DamageEnemy(SpawnedEnemy enemy, int damage)
+        {
+            if (!enemy.IsAlive)
+                return;
+
+            enemy.CurrentHealth -= damage;
+            if (enemy.CurrentHealth <= 0)
+            {
+                KillEnemy(enemy);
+            }
+        }
+
+        private void KillEnemy(SpawnedEnemy enemy)
+        {
+            enemy.IsAlive = false;
+
+            int goldDrop = rng.Next(enemy.Definition.GoldMin, enemy.Definition.GoldMax + 1);
+            playerData.Gold += goldDrop;
+            GainExperience(enemy.Definition.XpReward);
+
+            GameCanvas.Children.Remove(enemy.Body);
+            GameCanvas.Children.Remove(enemy.Label);
+            GameCanvas.Children.Remove(enemy.HealthBg);
+            GameCanvas.Children.Remove(enemy.HealthFill);
+            activeEnemies.Remove(enemy);
+
+            ShowStatus($"+{enemy.Definition.XpReward} XP, +{goldDrop}g", 60);
+        }
+
+        private void GainExperience(int amount)
+        {
+            playerData.Experience += amount;
+
+            while (playerData.Experience >= playerData.NextLevelXp)
+            {
+                playerData.Experience -= playerData.NextLevelXp;
+                playerData.Level += 1;
+                ShowStatus($"Level Up! Now Lv {playerData.Level}", 80);
+            }
+        }
+
+        private void UpdateProjectiles()
+        {
+            foreach (var arrow in activeProjectiles.ToList())
+            {
+                if (!arrow.IsAlive)
+                    continue;
+
+                double move = arrow.Speed * arrow.Direction;
+                arrow.X += move;
+                arrow.DistanceTraveled += Math.Abs(move);
+
+                if (arrow.DistanceTraveled >= arrow.MaxDistance)
+                {
+                    RemoveProjectile(arrow);
+                    continue;
+                }
+
+                Rect arrowRect = new Rect(arrow.X, arrow.Y, arrow.Body.Width, arrow.Body.Height);
+
+                foreach (var enemy in activeEnemies.ToList())
+                {
+                    if (!enemy.IsAlive)
+                        continue;
+
+                    Rect enemyRect = new Rect(enemy.X, enemy.Y, enemy.Body.Width, enemy.Body.Height);
+                    if (arrowRect.IntersectsWith(enemyRect))
+                    {
+                        DamageEnemy(enemy, arrow.Damage);
+                        RemoveProjectile(arrow);
+                        break;
+                    }
+                }
+            }
+        }
+
+        private void DrawProjectiles()
+        {
+            foreach (var arrow in activeProjectiles)
+            {
+                if (!arrow.IsAlive)
+                    continue;
+
+                Canvas.SetLeft(arrow.Body, arrow.X);
+                Canvas.SetTop(arrow.Body, arrow.Y);
+            }
+        }
+
+        private void RemoveProjectile(ArrowProjectile arrow)
+        {
+            if (!arrow.IsAlive)
+                return;
+
+            arrow.IsAlive = false;
+            GameCanvas.Children.Remove(arrow.Body);
+            activeProjectiles.Remove(arrow);
+        }
+
+        private void ClearProjectiles()
+        {
+            foreach (var arrow in activeProjectiles)
+                GameCanvas.Children.Remove(arrow.Body);
+
+            activeProjectiles.Clear();
+        }
+
+        private void UsePotion()
+        {
+            if (playerData.Health >= playerData.MaxHealth)
+            {
+                ShowStatus("Health already full", 50);
+                return;
+            }
+
+            var potionEntry = playerData.Inventory.FirstOrDefault(i => i.Item is ConsumableItem c && c.Name == "Potion");
+            if (potionEntry == null || potionEntry.Quantity <= 0)
+            {
+                ShowStatus("No potion", 50);
+                return;
+            }
+
+            var potion = (ConsumableItem)potionEntry.Item;
+            playerData.Health = Math.Min(playerData.MaxHealth, playerData.Health + potion.HealAmount);
+            RemoveItemFromInventory(potionEntry.Item, 1);
+            ShowStatus($"Used Potion (+{potion.HealAmount} HP)", 60);
+        }
+
+        private void AddItemToInventory(ItemBase item, int quantity)
+        {
+            if (item.Stackable)
+            {
+                var existing = playerData.Inventory.FirstOrDefault(i =>
+                    i.Item.GetType() == item.GetType() && i.Item.Name == item.Name);
+
+                if (existing != null)
+                {
+                    existing.Quantity += quantity;
+                    return;
+                }
+            }
+
+            playerData.Inventory.Add(new InventoryEntry
+            {
+                Item = item,
+                Quantity = quantity
+            });
+        }
+
+        private void RemoveItemFromInventory(ItemBase item, int quantity)
+        {
+            var entry = playerData.Inventory.FirstOrDefault(i => i.Item == item);
+            if (entry == null)
+                return;
+
+            entry.Quantity -= quantity;
+            if (entry.Quantity <= 0)
+                playerData.Inventory.Remove(entry);
+        }
+
+        private List<InventoryEntry> GetSellableInventory()
+        {
+            return playerData.Inventory
+                .Where(i =>
+                    i.Item != playerData.EquippedSword &&
+                    i.Item != playerData.EquippedBow)
+                .ToList();
+        }
+
+        private string GetInventorySummary()
+        {
+            if (playerData.Inventory.Count == 0)
+                return "None";
+
+            var parts = new List<string>();
+            foreach (var entry in playerData.Inventory)
+            {
+                string qty = entry.Quantity > 1 ? $" x{entry.Quantity}" : "";
+                parts.Add($"{entry.Item.Name}{qty}");
+            }
+
+            return string.Join(", ", parts);
+        }
+
+        private ItemBase CloneItem(ItemBase item)
+        {
+            if (item is WeaponItem w) return CloneWeapon(w);
+            if (item is ConsumableItem c)
+            {
+                return new ConsumableItem
+                {
+                    Name = c.Name,
+                    HealAmount = c.HealAmount,
+                    BasePrice = c.BasePrice
+                };
+            }
+            if (item is AmmoItem a)
+            {
+                return new AmmoItem
+                {
+                    Name = a.Name,
+                    AmmoType = a.AmmoType,
+                    BasePrice = a.BasePrice
+                };
+            }
+
+            throw new InvalidOperationException("Unknown item type");
+        }
+
+        private WeaponItem CloneWeapon(WeaponItem weapon)
+        {
+            return new WeaponItem
+            {
+                Name = weapon.Name,
+                WeaponCategory = weapon.WeaponCategory,
+                Damage = weapon.Damage,
+                BasePrice = weapon.BasePrice
+            };
+        }
 
         private void DrawPlayer()
         {
@@ -755,6 +2843,35 @@ namespace TaskbarRPG
             Canvas.SetTop(attackHitbox, playerY + 8);
         }
 
-        private bool IsKeyDown(int keyCode) => (GetAsyncKeyState(keyCode) & 0x8000) != 0;
+        private void DrawPlayerHud()
+        {
+            double hudX = playerX - 10;
+            double hudY = playerY - 24;
+
+            Canvas.SetLeft(playerHealthBg, hudX);
+            Canvas.SetTop(playerHealthBg, hudY);
+
+            double hpRatio = playerData.MaxHealth > 0
+                ? (double)playerData.Health / playerData.MaxHealth
+                : 0;
+
+            playerHealthFill.Width = 44 * Math.Max(0, hpRatio);
+            Canvas.SetLeft(playerHealthFill, hudX);
+            Canvas.SetTop(playerHealthFill, hudY);
+
+            playerHealthText.Text = $"{playerData.Health}/{playerData.MaxHealth}";
+            Canvas.SetLeft(playerHealthText, playerX - 18);
+            Canvas.SetTop(playerHealthText, playerY - 36);
+
+            playerArrowText.Text = $"Arrows: {playerData.GetArrowCount()}";
+            Canvas.SetLeft(playerArrowText, playerX - 18);
+            Canvas.SetTop(playerArrowText, playerY - 47);
+        }
+
+        private void ShowStatus(string text, int frames)
+        {
+            statusText.Text = text;
+            statusFramesRemaining = frames;
+        }
     }
 }
