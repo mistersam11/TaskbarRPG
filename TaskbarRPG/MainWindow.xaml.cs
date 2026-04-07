@@ -931,7 +931,7 @@ namespace TaskbarRPG
 
         private void LoadConfig()
         {
-            string configPath = System.IO.Path.Combine(AppContext.BaseDirectory, "gameconfig.json");
+            string configPath = Path.Combine(AppContext.BaseDirectory, "gameconfig.json");
             var options = new JsonSerializerOptions { WriteIndented = true };
 
             try
