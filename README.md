@@ -8,6 +8,7 @@ All runtime-editable files are copied to output and loaded from the executable d
 
 - `TaskbarRPG/gameconfig.json`
 - `TaskbarRPG/enemy_definitions.txt`
+- `TaskbarRPG/area_definitions.txt`
 - `TaskbarRPG/item_definitions.txt`
 - `TaskbarRPG/save_state.txt`
 
@@ -36,6 +37,19 @@ name;health;attackdamage;movespeed;level;biomes;stages
   - `biomes`: comma-separated (`plains,cave,forest,tundra`) or `*`
   - `stages`: comma/range list (`1-4,8,12-15`) or `*`
 
+## Area definitions (`area_definitions.txt`)
+
+One area profile per line:
+
+```txt
+name;stages;enemies;colorHex(optional)
+```
+
+- `name`: display name of area.
+- `stages`: where this area can appear (`1-4,16-19` etc).
+- `enemies`: comma-separated enemy names from `enemy_definitions.txt`.
+- `colorHex`: optional ground color (`RRGGBB`).
+
 ## Item definitions (`item_definitions.txt`)
 
 One item per line:
@@ -45,7 +59,14 @@ name;damage;cooldown
 ```
 
 - Category is inferred from name (`bow` => bow shop, otherwise sword shop).
-- Shops improve every 5-stage cycle and prices scale up with tier.
+- Shops improve every 5-stage cycle with meaningful damage jumps and higher prices per tier.
+
+## Balancing model (current)
+
+- **Static monster identity, stage-scaled stats**: enemies do not auto-match player stats; area templates choose which enemies appear, while stage adds controlled HP/DMG multipliers.
+- **XP curve**: required XP per level increases super-linearly (`20 + 12L + 2L²`) to avoid runaway early levelling.
+- **XP anti-farm scaling**: XP gained is scaled by enemy level vs player level so trivial enemies give heavily reduced XP and harder enemies give a modest bonus.
+- **Shop progression**: every 5-stage cycle unlocks stronger template items and raises prices.
 
 ## Sprite guide
 
@@ -67,4 +88,3 @@ name;damage;cooldown
   - `1` Save
   - `2` Save + Exit
   - `3` Reset progress (with confirmation)
-

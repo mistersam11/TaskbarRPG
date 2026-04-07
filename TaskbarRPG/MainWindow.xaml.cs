@@ -176,7 +176,7 @@ namespace TaskbarRPG
 
         public List<InventoryEntry> Inventory { get; set; } = new();
 
-        public int NextLevelXp => Level * 12;
+        public int NextLevelXp => 20 + (Level * 12) + (Level * Level * 2);
         public int BaseDamage => Level;
 
         public int GetArrowCount()
@@ -245,6 +245,7 @@ namespace TaskbarRPG
     public class EnemyDefinition
     {
         public string Name { get; set; } = "Enemy";
+        public int PowerLevel { get; set; } = 1;
         public double X { get; set; }
         public double PatrolRange { get; set; } = 80;
         public double AggroRange { get; set; } = 180;
@@ -282,6 +283,20 @@ namespace TaskbarRPG
         }
     }
 
+    public class AreaTemplate
+    {
+        public string Name { get; set; } = "Wilderness";
+        public List<(int Min, int Max)> StageRanges { get; set; } = new();
+        public List<string> EnemyNames { get; set; } = new();
+        public Color GroundColor { get; set; } = Color.FromRgb(90, 170, 80);
+
+        public bool CanAppearAtStage(int stage)
+        {
+            if (StageRanges.Count == 0) return true;
+            return StageRanges.Any(r => stage >= r.Min && stage <= r.Max);
+        }
+    }
+
     public class Area
     {
         public AreaType Type { get; set; }
@@ -301,14 +316,6 @@ namespace TaskbarRPG
             [5] = "The Goo",
             [10] = "Fallen Knight",
             [15] = "DB-5000",
-        };
-
-        private static readonly (BiomeType Biome, string Name, Color Color)[] Biomes = new[]
-        {
-            (BiomeType.Plains, "Plains", Color.FromRgb(90, 170, 80)),
-            (BiomeType.Cave, "Cave", Color.FromRgb(95, 95, 105)),
-            (BiomeType.Forest, "Forest", Color.FromRgb(60, 130, 70)),
-            (BiomeType.Tundra, "Tundra", Color.FromRgb(140, 170, 190)),
         };
 
         public static Area GetTown()
@@ -369,38 +376,53 @@ namespace TaskbarRPG
             };
         }
 
-        public static Area CreateStageArea(int stage, Random rng, IReadOnlyList<EnemyTemplate> enemyTemplates)
+        public static Area CreateStageArea(int stage, Random rng, IReadOnlyList<AreaTemplate> areaTemplates, IReadOnlyList<EnemyTemplate> enemyTemplates)
         {
             if (stage % 5 == 0)
                 return CreateBossArea(stage);
 
-            var biome = Biomes[rng.Next(Biomes.Length)];
+            var eligibleAreas = areaTemplates.Where(a => a.CanAppearAtStage(stage)).ToList();
+            var chosenArea = eligibleAreas.Count > 0
+                ? eligibleAreas[rng.Next(eligibleAreas.Count)]
+                : new AreaTemplate
+                {
+                    Name = "Wilderness",
+                    StageRanges = new List<(int, int)> { (1, int.MaxValue) },
+                    EnemyNames = enemyTemplates.Select(e => e.Name).ToList(),
+                    GroundColor = Color.FromRgb(90, 170, 80)
+                };
+
             int count = rng.Next(4, 9);
             var spawns = new List<EnemyDefinition>();
             double spacing = 1300.0 / count;
-            var eligibleTemplates = enemyTemplates
-                .Where(t => t.CanSpawnIn(stage, biome.Biome))
+            var enemyMap = enemyTemplates.ToDictionary(e => e.Name, e => e, StringComparer.OrdinalIgnoreCase);
+            var allowedEnemies = chosenArea.EnemyNames
+                .Where(name => enemyMap.ContainsKey(name))
+                .Select(name => enemyMap[name])
                 .ToList();
 
             for (int i = 0; i < count; i++)
             {
-                EnemyTemplate chosen = eligibleTemplates.Count > 0
-                    ? eligibleTemplates[rng.Next(eligibleTemplates.Count)]
+                EnemyTemplate chosen = allowedEnemies.Count > 0
+                    ? allowedEnemies[rng.Next(allowedEnemies.Count)]
                     : new EnemyTemplate { Name = "Wisp", Health = 8, AttackDamage = 4, MoveSpeed = 1.0, Level = stage };
 
-                int stageBonus = Math.Max(0, stage / 4);
+                double hpScale = 1.0 + (stage * 0.06);
+                double dmgScale = 1.0 + (stage * 0.04);
+                int enemyLevel = Math.Max(1, chosen.Level + (stage / 5));
                 spawns.Add(new EnemyDefinition
                 {
                     Name = chosen.Name,
+                    PowerLevel = enemyLevel,
                     X = 160 + (i * spacing) + rng.Next(-25, 26),
                     PatrolRange = 90 + rng.Next(0, 70),
                     AggroRange = 160 + rng.Next(0, 70),
                     Speed = Math.Max(0.4, chosen.MoveSpeed),
-                    MaxHealth = Math.Max(2, chosen.Health + (stageBonus * 2)),
-                    ContactDamage = Math.Max(1, chosen.AttackDamage + stageBonus),
-                    XpReward = Math.Max(2, chosen.Level * 2 + stageBonus),
-                    GoldMin = Math.Max(1, chosen.Level / 2),
-                    GoldMax = Math.Max(2, chosen.Level + stageBonus + 1),
+                    MaxHealth = Math.Max(2, (int)Math.Round(chosen.Health * hpScale)),
+                    ContactDamage = Math.Max(1, (int)Math.Round(chosen.AttackDamage * dmgScale)),
+                    XpReward = Math.Max(4, 6 + (enemyLevel * 2)),
+                    GoldMin = Math.Max(1, enemyLevel / 2),
+                    GoldMax = Math.Max(2, enemyLevel + 2),
                     Color = Color.FromRgb(
                         (byte)rng.Next(70, 210),
                         (byte)rng.Next(70, 210),
@@ -411,14 +433,21 @@ namespace TaskbarRPG
             return new Area
             {
                 Type = AreaType.Adventure,
-                Name = $"Stage {stage} - {biome.Name}",
-                GroundColor = biome.Color,
-                Biome = biome.Biome,
+                Name = $"Stage {stage} - {chosenArea.Name}",
+                GroundColor = chosenArea.GroundColor,
+                Biome = ParseBiomeName(chosenArea.Name),
                 StageNumber = stage,
                 IsBossArea = false,
                 Zones = CreateEmptyZones(),
                 EnemySpawns = spawns
             };
+        }
+
+        private static BiomeType? ParseBiomeName(string areaName)
+        {
+            return Enum.TryParse<BiomeType>(areaName, true, out var biome)
+                ? biome
+                : null;
         }
 
         private static Area CreateBossArea(int stage)
@@ -431,6 +460,7 @@ namespace TaskbarRPG
             var boss = new EnemyDefinition
             {
                 Name = bossName,
+                PowerLevel = Math.Max(1, stage + 2),
                 X = 820,
                 PatrolRange = 170,
                 AggroRange = 260,
@@ -956,6 +986,7 @@ namespace TaskbarRPG
         private readonly List<SpawnedZoneVisual> activeZoneVisuals = new();
         private readonly List<SpawnedEnemy> activeEnemies = new();
         private readonly List<ArrowProjectile> activeProjectiles = new();
+        private readonly List<AreaTemplate> areaTemplates = new();
         private readonly List<EnemyTemplate> enemyTemplates = new();
         private readonly List<ItemTemplate> itemTemplates = new();
 
@@ -1018,6 +1049,7 @@ namespace TaskbarRPG
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
             LoadConfig();
+            LoadAreaTemplates();
             LoadEnemyTemplates();
             LoadItemTemplates();
             InitializePlayerData();
@@ -1073,6 +1105,87 @@ namespace TaskbarRPG
             arrowHitboxHeight = Math.Max(2, gameConfig.ArrowHitboxHeight);
             arrowSpeed = Math.Max(1, gameConfig.ArrowSpeed);
             arrowDurationFrames = Math.Max(1, gameConfig.ArrowDurationFrames);
+        }
+
+        private void LoadAreaTemplates()
+        {
+            areaTemplates.Clear();
+            string path = IOPath.Combine(AppContext.BaseDirectory, "area_definitions.txt");
+
+            if (!System.IO.File.Exists(path))
+            {
+                string seed =
+                    "# name;stages;enemies;colorHex(optional)\n" +
+                    "Plains;1-4,16-19;slime,wolf;5AAA50\n" +
+                    "Cave;6-9,21-24;bat,crawler;5F5F69\n" +
+                    "Forest;11-14,26-29;wolf,slime;3C8246\n" +
+                    "Tundra;31-34;frostling,bat;8CAABE";
+                System.IO.File.WriteAllText(path, seed);
+            }
+
+            foreach (var raw in System.IO.File.ReadAllLines(path))
+            {
+                string line = raw.Trim();
+                if (line.Length == 0 || line.StartsWith("#")) continue;
+                var parts = line.Split(';');
+                if (parts.Length < 3) continue;
+
+                var template = new AreaTemplate
+                {
+                    Name = parts[0].Trim(),
+                    StageRanges = ParseStageRanges(parts[1]),
+                    EnemyNames = parts[2]
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .ToList(),
+                    GroundColor = parts.Length >= 4 ? ParseColorHex(parts[3], Color.FromRgb(90, 170, 80)) : Color.FromRgb(90, 170, 80)
+                };
+
+                areaTemplates.Add(template);
+            }
+        }
+
+        private static List<(int Min, int Max)> ParseStageRanges(string value)
+        {
+            var ranges = new List<(int Min, int Max)>();
+            foreach (var token in value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (token == "*")
+                {
+                    ranges.Clear();
+                    return ranges;
+                }
+
+                var split = token.Split('-', StringSplitOptions.TrimEntries);
+                if (split.Length == 1 && int.TryParse(split[0], out int exact))
+                {
+                    ranges.Add((exact, exact));
+                }
+                else if (split.Length == 2 &&
+                         int.TryParse(split[0], out int min) &&
+                         int.TryParse(split[1], out int max))
+                {
+                    ranges.Add((Math.Min(min, max), Math.Max(min, max)));
+                }
+            }
+            return ranges;
+        }
+
+        private static Color ParseColorHex(string raw, Color fallback)
+        {
+            string value = raw.Trim().TrimStart('#');
+            if (value.Length != 6)
+                return fallback;
+            try
+            {
+                byte r = Convert.ToByte(value[..2], 16);
+                byte g = Convert.ToByte(value.Substring(2, 2), 16);
+                byte b = Convert.ToByte(value.Substring(4, 2), 16);
+                return Color.FromRgb(r, g, b);
+            }
+            catch
+            {
+                return fallback;
+            }
         }
 
         private void LoadEnemyTemplates()
@@ -2523,7 +2636,7 @@ namespace TaskbarRPG
             {
                 if (!stageAreas.TryGetValue(stageNumber, out var stageArea))
                 {
-                    stageArea = AreaDefinitions.CreateStageArea(stageNumber, rng, enemyTemplates);
+                    stageArea = AreaDefinitions.CreateStageArea(stageNumber, rng, areaTemplates, enemyTemplates);
                     stageAreas[stageNumber] = stageArea;
                 }
 
@@ -2601,9 +2714,10 @@ namespace TaskbarRPG
             for (int i = 0; i < count; i++)
             {
                 var template = unlocked[rng.Next(unlocked.Count)];
-                int dmg = template.Damage + Math.Max(0, tier / 2);
-                int cooldown = Math.Max(1, template.CooldownFrames - (tier / 3));
-                int price = (dmg * 8) + (tier * 6) + Math.Max(1, 20 - cooldown);
+                int tierDamageBonus = (tier * 2) + (tier >= 3 ? 1 : 0);
+                int dmg = template.Damage + tierDamageBonus + rng.Next(0, 2);
+                int cooldown = Math.Max(1, template.CooldownFrames - (tier / 2));
+                int price = (dmg * 14) + (tier * 18) + Math.Max(1, 24 - cooldown);
 
                 results.Add(new WeaponItem
                 {
@@ -3109,8 +3223,9 @@ namespace TaskbarRPG
             enemy.IsAlive = false;
 
             int goldDrop = rng.Next(enemy.Definition.GoldMin, enemy.Definition.GoldMax + 1);
+            int scaledXp = ScaleXpForPlayerLevel(enemy.Definition.XpReward, enemy.Definition.PowerLevel);
             playerData.Gold += goldDrop;
-            GainExperience(enemy.Definition.XpReward);
+            GainExperience(scaledXp);
 
             GameCanvas.Children.Remove(enemy.Body);
             GameCanvas.Children.Remove(enemy.Label);
@@ -3119,7 +3234,7 @@ namespace TaskbarRPG
             GameCanvas.Children.Remove(enemy.AttackHitbox);
             activeEnemies.Remove(enemy);
 
-            ShowStatus($"+{enemy.Definition.XpReward} XP, +{goldDrop}g", 60);
+            ShowStatus($"+{scaledXp} XP, +{goldDrop}g", 60);
 
             if (currentStageNumber > 0 && activeEnemies.Count == 0)
             {
@@ -3144,6 +3259,17 @@ namespace TaskbarRPG
                 playerData.Level++;
                 ShowStatus($"Level Up! Now Lv {playerData.Level}", 80);
             }
+        }
+
+        private int ScaleXpForPlayerLevel(int baseXp, int enemyLevel)
+        {
+            int diff = enemyLevel - playerData.Level;
+            if (diff <= -6) return 1;
+            if (diff <= -3) return Math.Max(1, (int)Math.Round(baseXp * 0.4));
+            if (diff < 0) return Math.Max(1, (int)Math.Round(baseXp * 0.7));
+            if (diff == 0) return baseXp;
+            if (diff <= 3) return (int)Math.Round(baseXp * 1.15);
+            return (int)Math.Round(baseXp * 1.35);
         }
 
         // -----------------------------------------------------------------------
