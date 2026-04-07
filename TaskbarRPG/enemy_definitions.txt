@@ -2,6 +2,7 @@
 # biomes: optional comma list (plains,cave,forest,tundra) or *
 # stages: optional comma list/ranges (e.g. 1-4,8,12-14) or *
 slime;10;4;0.9;1;plains;
+sheep;15;2;1;1;plains;
 bat;9;5;1.4;2;cave;
 wolf;14;6;1.2;4;forest;
 crawler;18;8;1.1;6;cave;6-9
