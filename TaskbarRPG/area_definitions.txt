@@ -1,0 +1,5 @@
+# name;stages;enemies;colorHex(optional)
+Plains;1-4,16-19;slime,wolf;5AAA50
+Cave;6-9,21-24;bat,crawler;5F5F69
+Forest;11-14,26-29;wolf,slime;3C8246
+Tundra;31-34;frostling,bat;8CAABE
