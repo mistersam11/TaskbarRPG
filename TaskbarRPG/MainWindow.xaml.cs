@@ -992,6 +992,7 @@ namespace TaskbarRPG
             LoadConfig();
             LoadEnemyTemplates();
             InitializePlayerData();
+            int startStage = LoadSaveState();
             PositionAboveTaskbar();
             MakeClickThrough();
             CreateBackground();
@@ -1009,7 +1010,7 @@ namespace TaskbarRPG
             SetupTransition();
             InstallKeyboardHook();
 
-            LoadArea(0, TransitionDirection.Right, animate: false);
+            LoadArea(startStage, TransitionDirection.Right, animate: false);
             StartGameLoop();
 
         }
@@ -1120,6 +1121,131 @@ namespace TaskbarRPG
             }
         }
 
+        private int LoadSaveState()
+        {
+            string savePath = IOPath.Combine(AppContext.BaseDirectory, "save_state.txt");
+            if (!System.IO.File.Exists(savePath))
+                return 0;
+
+            try
+            {
+                var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var raw in System.IO.File.ReadAllLines(savePath))
+                {
+                    string line = raw.Trim();
+                    if (line.Length == 0 || line.StartsWith("#")) continue;
+                    int split = line.IndexOf('=');
+                    if (split <= 0) continue;
+                    values[line[..split].Trim()] = line[(split + 1)..].Trim();
+                }
+
+                playerData.Level = GetInt(values, "Level", playerData.Level);
+                playerData.Experience = GetInt(values, "Experience", playerData.Experience);
+                playerData.Gold = GetInt(values, "Gold", playerData.Gold);
+                playerData.Health = GetInt(values, "Health", playerData.Health);
+                playerData.MaxHealth = GetInt(values, "MaxHealth", playerData.MaxHealth);
+                highestUnlockedStage = Math.Max(1, GetInt(values, "HighestUnlockedStage", highestUnlockedStage));
+
+                playerData.Inventory.Clear();
+                int inventoryCount = Math.Max(0, GetInt(values, "InventoryCount", 0));
+                for (int i = 0; i < inventoryCount; i++)
+                {
+                    if (!values.TryGetValue($"Inventory{i}", out var line)) continue;
+                    var entry = ParseInventoryEntry(line);
+                    if (entry != null)
+                        playerData.Inventory.Add(entry);
+                }
+
+                int swordIndex = GetInt(values, "EquippedSwordIndex", -1);
+                int bowIndex = GetInt(values, "EquippedBowIndex", -1);
+                playerData.EquippedSword = (swordIndex >= 0 && swordIndex < playerData.Inventory.Count && playerData.Inventory[swordIndex].Item is WeaponItem sw && sw.WeaponCategory == WeaponCategory.Sword)
+                    ? sw : null;
+                playerData.EquippedBow = (bowIndex >= 0 && bowIndex < playerData.Inventory.Count && playerData.Inventory[bowIndex].Item is WeaponItem bw && bw.WeaponCategory == WeaponCategory.Bow)
+                    ? bw : null;
+
+                int stage = Math.Max(0, GetInt(values, "CurrentStage", 0));
+                return stage;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        private void SaveGameState()
+        {
+            string savePath = IOPath.Combine(AppContext.BaseDirectory, "save_state.txt");
+            var lines = new List<string>
+            {
+                "# TaskbarRPG Save State",
+                "# Editable for testing",
+                $"CurrentStage={currentStageNumber}",
+                $"HighestUnlockedStage={highestUnlockedStage}",
+                $"Level={playerData.Level}",
+                $"Experience={playerData.Experience}",
+                $"Gold={playerData.Gold}",
+                $"Health={playerData.Health}",
+                $"MaxHealth={playerData.MaxHealth}",
+                $"InventoryCount={playerData.Inventory.Count}",
+            };
+
+            for (int i = 0; i < playerData.Inventory.Count; i++)
+                lines.Add($"Inventory{i}={SerializeInventoryEntry(playerData.Inventory[i])}");
+
+            int equippedSwordIndex = playerData.Inventory.FindIndex(e => ReferenceEquals(e.Item, playerData.EquippedSword));
+            int equippedBowIndex = playerData.Inventory.FindIndex(e => ReferenceEquals(e.Item, playerData.EquippedBow));
+            lines.Add($"EquippedSwordIndex={equippedSwordIndex}");
+            lines.Add($"EquippedBowIndex={equippedBowIndex}");
+
+            System.IO.File.WriteAllLines(savePath, lines);
+        }
+
+        private static int GetInt(Dictionary<string, string> values, string key, int fallback)
+        {
+            return values.TryGetValue(key, out var raw) && int.TryParse(raw, out int parsed)
+                ? parsed
+                : fallback;
+        }
+
+        private static string SerializeInventoryEntry(InventoryEntry entry)
+        {
+            string basePart = $"{entry.Item.Kind}|{entry.Item.Name.Replace("|", "")}|{entry.Quantity}|{entry.Item.BasePrice}";
+            return entry.Item switch
+            {
+                WeaponItem w => $"{basePart}|{w.WeaponCategory}|{w.Damage}",
+                ConsumableItem c => $"{basePart}|{c.HealAmount}",
+                AmmoItem a => $"{basePart}|{a.AmmoType.Replace("|", "")}",
+                _ => basePart
+            };
+        }
+
+        private static InventoryEntry? ParseInventoryEntry(string line)
+        {
+            string[] parts = line.Split('|');
+            if (parts.Length < 4) return null;
+
+            if (!Enum.TryParse<ItemKind>(parts[0], out var kind)) return null;
+            string name = parts[1];
+            if (!int.TryParse(parts[2], out int qty)) return null;
+            if (!int.TryParse(parts[3], out int basePrice)) return null;
+
+            ItemBase item = kind switch
+            {
+                ItemKind.Weapon when parts.Length >= 6 &&
+                    Enum.TryParse<WeaponCategory>(parts[4], out var category) &&
+                    int.TryParse(parts[5], out int dmg) =>
+                    new WeaponItem { Name = name, BasePrice = basePrice, WeaponCategory = category, Damage = dmg },
+                ItemKind.Consumable when parts.Length >= 5 &&
+                    int.TryParse(parts[4], out int heal) =>
+                    new ConsumableItem { Name = name, BasePrice = basePrice, HealAmount = heal },
+                ItemKind.Ammo when parts.Length >= 5 =>
+                    new AmmoItem { Name = name, BasePrice = basePrice, AmmoType = parts[4] },
+                _ => new AmmoItem { Name = name, BasePrice = basePrice, AmmoType = "Arrow" }
+            };
+
+            return new InventoryEntry { Item = item, Quantity = Math.Max(1, qty) };
+        }
+
         private void InitializePlayerData()
         {
             var oldSword = ItemFactory.CreateOldSword();
@@ -1138,6 +1264,7 @@ namespace TaskbarRPG
         {
             // Stop the game loop first so no further callbacks fire
             timer?.Stop();
+            SaveGameState();
 
             if (keyboardHook != IntPtr.Zero)
             {
@@ -2208,6 +2335,7 @@ namespace TaskbarRPG
             SpawnAreaZones(currentArea);
             SpawnEnemies(currentArea);
             UpdateExitTexts();
+            SaveGameState();
         }
 
         private void RefreshTownShops()
@@ -2696,6 +2824,9 @@ namespace TaskbarRPG
                     ? "Boss defeated! Return right to Town."
                     : $"Area clear! Stage {currentStageNumber + 1} unlocked.";
                 ShowStatus(clearMessage, 100);
+
+                if (currentArea.IsBossArea)
+                    SaveGameState();
             }
         }
 
