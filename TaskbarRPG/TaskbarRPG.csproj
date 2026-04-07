@@ -10,12 +10,18 @@
 
   <ItemGroup>
     <None Remove="Assets\Player\AnimationSheet_Character.png" />
+    <None Remove="Assets\Player\player_attack.png" />
     <None Remove="Assets\Player\player_idle.png" />
+    <None Remove="Assets\Player\player_walk1.png" />
+    <None Remove="Assets\Player\player_walk2.png" />
   </ItemGroup>
 
   <ItemGroup>
     <Resource Include="Assets\Player\AnimationSheet_Character.png" />
+    <Resource Include="Assets\Player\player_attack.png" />
     <Resource Include="Assets\Player\player_idle.png" />
+    <Resource Include="Assets\Player\player_walk1.png" />
+    <Resource Include="Assets\Player\player_walk2.png" />
   </ItemGroup>
 
 </Project>

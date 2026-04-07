@@ -737,6 +737,13 @@ namespace TaskbarRPG
         private TextBlock rightExitText = null!;
         private TextBlock statusText = null!;
 
+        private BitmapImage playerIdleSprite = null!;
+        private BitmapImage playerWalk1Sprite = null!;
+        private BitmapImage playerWalk2Sprite = null!;
+        private BitmapImage playerAttackSprite = null!;
+
+        private int animationFrameCounter = 0;
+
         private BitmapImage LoadSprite(string relativePath)
         {
             return new BitmapImage(new Uri($"pack://application:,,,/{relativePath}", UriKind.Absolute));
@@ -757,8 +764,8 @@ namespace TaskbarRPG
         private double playAreaHeight = 140;
         private double playerX = 100;
         private double playerY = 0;
-        private double playerWidth = 22;
-        private double playerHeight = 30;
+        private double playerWidth = 32;
+        private double playerHeight = 32;
         private double velocityX = 0;
         private double velocityY = 0;
         private double moveSpeed = 4.4;
@@ -807,12 +814,19 @@ namespace TaskbarRPG
             CreateHud();
             CreateMainPanel();
             CreateEdgeTexts();
+
+            playerIdleSprite = LoadSprite("Assets/Player/player_idle.png");
+            playerWalk1Sprite = LoadSprite("Assets/Player/player_walk1.png");
+            playerWalk2Sprite = LoadSprite("Assets/Player/player_walk2.png");
+            playerAttackSprite = LoadSprite("Assets/Player/player_attack.png");
+
             CreatePlayer();
             SetupTransition();
             InstallKeyboardHook();
 
             LoadArea(AreaType.Town, TransitionDirection.Right, animate: false);
             StartGameLoop();
+
         }
 
         private void InitializePlayerData()
@@ -1241,7 +1255,7 @@ namespace TaskbarRPG
                 Width = playerWidth,
                 Height = playerHeight,
                 Stretch = Stretch.Fill,
-                Source = LoadSprite("Assets/Player/player_idle.png"),
+                Source = playerIdleSprite,
             };
 
             RenderOptions.SetBitmapScalingMode(player, BitmapScalingMode.NearestNeighbor);
@@ -1250,8 +1264,9 @@ namespace TaskbarRPG
             {
                 Width = 20,
                 Height = 12,
-                Fill = Brushes.OrangeRed,
+                Fill = Brushes.Transparent,
                 Visibility = Visibility.Hidden,
+                Stroke = null,
             };
 
             GameCanvas.Children.Add(player);
@@ -2350,7 +2365,6 @@ namespace TaskbarRPG
         {
             if (!isAttacking)
             {
-
                 attackHitbox.Visibility = Visibility.Hidden;
                 return;
             }
@@ -2359,8 +2373,6 @@ namespace TaskbarRPG
             if (attackFramesRemaining <= 0)
             {
                 isAttacking = false;
-                
-
                 attackHitbox.Visibility = Visibility.Hidden;
             }
         }
@@ -2625,18 +2637,45 @@ namespace TaskbarRPG
         // -----------------------------------------------------------------------
         private void DrawPlayer()
         {
+            animationFrameCounter++;
+
+            if (isAttacking)
+            {
+                player.Source = playerAttackSprite;
+            }
+            else if (!isOnGround)
+            {
+                player.Source = playerIdleSprite;
+            }
+            else if (Math.Abs(velocityX) > 0.1)
+            {
+                player.Source = ((animationFrameCounter / 8) % 2 == 0)
+                    ? playerWalk1Sprite
+                    : playerWalk2Sprite;
+            }
+            else
+            {
+                player.Source = playerIdleSprite;
+            }
+
+            player.RenderTransformOrigin = new Point(0.5, 0.5);
+            player.RenderTransform = new ScaleTransform(facingRight ? 1 : -1, 1);
+
             Canvas.SetLeft(player, playerX);
             Canvas.SetTop(player, playerY);
         }
 
         private void DrawAttackHitbox()
         {
+            double overlapIntoPlayer = 16;
+            double forwardReach = 8;
+
             double hitboxX = facingRight
-                ? playerX + playerWidth
-                : playerX - attackHitbox.Width;
+                ? playerX + playerWidth - overlapIntoPlayer
+                : playerX - attackHitbox.Width + overlapIntoPlayer;
 
             Canvas.SetLeft(attackHitbox, hitboxX);
-            Canvas.SetTop(attackHitbox, playerY + 8);
+            Canvas.SetTop(attackHitbox, playerY + 10);
         }
 
         private void DrawPlayerHud()
