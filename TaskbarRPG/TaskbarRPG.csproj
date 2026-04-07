@@ -27,7 +27,6 @@
 
   <ItemGroup>
     <Resource Include="Assets\Player\AnimationSheet_Character.png" />
-    <Resource Include="Assets\Player\arrow.png" />
     <Resource Include="Assets\Player\player_attack.png" />
     <Resource Include="Assets\Player\player_idle.png" />
     <Resource Include="Assets\Player\player_walk1.png" />
@@ -56,10 +55,6 @@
     <Content Include="Assets\Player\arrow*.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-  </ItemGroup>
-
-  <ItemGroup>
-    <Content Remove="Assets\Player\arrow.png" />
   </ItemGroup>
 
 </Project>
