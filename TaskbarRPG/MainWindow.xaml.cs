@@ -910,11 +910,11 @@ namespace TaskbarRPG
         private TextBlock rightExitText = null!;
         private TextBlock statusText = null!;
 
-        private BitmapImage playerIdleSprite = null!;
-        private BitmapImage playerWalk1Sprite = null!;
-        private BitmapImage playerWalk2Sprite = null!;
-        private BitmapImage playerAttackSprite = null!;
-        private BitmapImage? playerDamagedSprite = null;
+        private List<BitmapImage> playerIdleFrames = new();
+        private List<BitmapImage> playerWalkFrames = new();
+        private List<BitmapImage> playerAttackFrames = new();
+        private List<BitmapImage> playerJumpFrames = new();
+        private List<BitmapImage> playerDamagedFrames = new();
         private BitmapImage? playerArrowSprite = null;
 
         private void UpdateNpcAnimations()
@@ -1038,8 +1038,34 @@ namespace TaskbarRPG
         }
 
         private BitmapImage LoadPlayerSpriteFromDiskOrPack(string fileName, string fallbackPackPath)
+            => LoadOptionalPlayerSpriteFromDisk(fileName) ?? LoadSprite(fallbackPackPath);
+
+        private List<BitmapImage> LoadPlayerAnimationFrames(string actionName, string? fallbackPackPath = null)
         {
-            return LoadOptionalPlayerSpriteFromDisk(fileName) ?? LoadSprite(fallbackPackPath);
+            var frames = new List<BitmapImage>();
+            string dir = IOPath.Combine(AppContext.BaseDirectory, "Assets", "Player");
+            string pattern = $"player_{actionName}*.png";
+
+            if (System.IO.Directory.Exists(dir))
+            {
+                foreach (string file in System.IO.Directory
+                    .GetFiles(dir, pattern)
+                    .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+                {
+                    var bitmap = new BitmapImage();
+                    bitmap.BeginInit();
+                    bitmap.UriSource = new Uri(file, UriKind.Absolute);
+                    bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                    bitmap.EndInit();
+                    bitmap.Freeze();
+                    frames.Add(bitmap);
+                }
+            }
+
+            if (frames.Count == 0 && fallbackPackPath != null)
+                frames.Add(LoadSprite(fallbackPackPath));
+
+            return frames;
         }
 
         // Game state
@@ -1130,11 +1156,14 @@ namespace TaskbarRPG
             CreateMainPanel();
             CreateEdgeTexts();
 
-            playerIdleSprite = LoadPlayerSpriteFromDiskOrPack("player_idle.png", "Assets/Player/player_idle.png");
-            playerWalk1Sprite = LoadPlayerSpriteFromDiskOrPack("player_walk1.png", "Assets/Player/player_walk1.png");
-            playerWalk2Sprite = LoadPlayerSpriteFromDiskOrPack("player_walk2.png", "Assets/Player/player_walk2.png");
-            playerAttackSprite = LoadPlayerSpriteFromDiskOrPack("player_attack.png", "Assets/Player/player_attack.png");
-            playerDamagedSprite = LoadOptionalPlayerSpriteFromDisk("player_damaged.png");
+            playerIdleFrames = LoadPlayerAnimationFrames("idle", "Assets/Player/player_idle.png");
+            playerWalkFrames = LoadPlayerAnimationFrames("walk", "Assets/Player/player_walk1.png");
+            var walkFallbackFrame = LoadPlayerSpriteFromDiskOrPack("player_walk2.png", "Assets/Player/player_walk2.png");
+            if (playerWalkFrames.Count == 1)
+                playerWalkFrames.Add(walkFallbackFrame);
+            playerAttackFrames = LoadPlayerAnimationFrames("attack", "Assets/Player/player_attack.png");
+            playerJumpFrames = LoadPlayerAnimationFrames("jump");
+            playerDamagedFrames = LoadPlayerAnimationFrames("damaged");
             playerArrowSprite = LoadOptionalPlayerSpriteFromDisk("arrow.png");
 
             CreatePlayer();
@@ -1144,6 +1173,448 @@ namespace TaskbarRPG
             LoadArea(startStage, TransitionDirection.Right, animate: false);
             StartGameLoop();
 
+        }
+
+        private void LoadConfig()
+        {
+            string configPath = IOPath.Combine(AppContext.BaseDirectory, "gameconfig.json");
+            var options = new JsonSerializerOptions { WriteIndented = true };
+
+            try
+            {
+                if (!System.IO.File.Exists(configPath))
+                {
+                    System.IO.File.WriteAllText(configPath, JsonSerializer.Serialize(new GameConfig(), options));
+                }
+
+                var loaded = JsonSerializer.Deserialize<GameConfig>(System.IO.File.ReadAllText(configPath));
+                gameConfig = loaded ?? new GameConfig();
+            }
+            catch
+            {
+                gameConfig = new GameConfig();
+            }
+
+            moveSpeed = gameConfig.MoveSpeed;
+            gravity = gameConfig.Gravity;
+            jumpStrength = gameConfig.JumpStrength;
+            playerHitboxWidth = Math.Max(6, Math.Min(playerWidth, gameConfig.PlayerHitboxWidth));
+            playerHitboxHeight = Math.Max(6, Math.Min(playerHeight, gameConfig.PlayerHitboxHeight));
+            arrowHitboxWidth = Math.Max(2, gameConfig.ArrowHitboxWidth);
+            arrowHitboxHeight = Math.Max(2, gameConfig.ArrowHitboxHeight);
+            arrowSpeed = Math.Max(1, gameConfig.ArrowSpeed);
+            arrowDurationFrames = Math.Max(1, gameConfig.ArrowDurationFrames);
+        }
+
+        private void LoadAreaTemplates()
+        {
+            areaTemplates.Clear();
+            string path = IOPath.Combine(AppContext.BaseDirectory, "area_definitions.txt");
+
+            if (!System.IO.File.Exists(path))
+            {
+                string seed =
+                    "# name;stages;enemies;colorHex(optional)\n" +
+                    "Plains;1-4,16-19;slime,wolf;5AAA50\n" +
+                    "Cave;6-9,21-24;bat,crawler;5F5F69\n" +
+                    "Forest;11-14,26-29;wolf,slime;3C8246\n" +
+                    "Tundra;31-34;frostling,bat;8CAABE";
+                System.IO.File.WriteAllText(path, seed);
+            }
+
+            foreach (var raw in System.IO.File.ReadAllLines(path))
+            {
+                string line = raw.Trim();
+                if (line.Length == 0 || line.StartsWith("#")) continue;
+                var parts = line.Split(';');
+                if (parts.Length < 3) continue;
+
+                var template = new AreaTemplate
+                {
+                    Name = parts[0].Trim(),
+                    StageRanges = ParseStageRanges(parts[1]),
+                    EnemyNames = parts[2]
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .ToList(),
+                    GroundColor = parts.Length >= 4 ? ParseColorHex(parts[3], Color.FromRgb(90, 170, 80)) : Color.FromRgb(90, 170, 80)
+                };
+
+                areaTemplates.Add(template);
+            }
+        }
+
+        private static List<(int Min, int Max)> ParseStageRanges(string value)
+        {
+            var ranges = new List<(int Min, int Max)>();
+            foreach (var token in value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (token == "*")
+                {
+                    ranges.Clear();
+                    return ranges;
+                }
+
+                var split = token.Split('-', StringSplitOptions.TrimEntries);
+                if (split.Length == 1 && int.TryParse(split[0], out int exact))
+                {
+                    ranges.Add((exact, exact));
+                }
+                else if (split.Length == 2 &&
+                         int.TryParse(split[0], out int min) &&
+                         int.TryParse(split[1], out int max))
+                {
+                    ranges.Add((Math.Min(min, max), Math.Max(min, max)));
+                }
+            }
+            return ranges;
+        }
+
+        private static Color ParseColorHex(string raw, Color fallback)
+        {
+            string value = raw.Trim().TrimStart('#');
+            if (value.Length != 6)
+                return fallback;
+            try
+            {
+                byte r = Convert.ToByte(value[..2], 16);
+                byte g = Convert.ToByte(value.Substring(2, 2), 16);
+                byte b = Convert.ToByte(value.Substring(4, 2), 16);
+                return Color.FromRgb(r, g, b);
+            }
+            catch
+            {
+                return fallback;
+            }
+        }
+
+        private void LoadEnemyTemplates()
+        {
+            enemyTemplates.Clear();
+            string defsPath = IOPath.Combine(AppContext.BaseDirectory, "enemy_definitions.txt");
+
+            if (!System.IO.File.Exists(defsPath))
+            {
+                string seed =
+                    "slime;10;4;0.9;1;plains;\n" +
+                    "bat;9;5;1.4;2;cave;\n" +
+                    "wolf;14;6;1.2;4;forest;\n" +
+                    "crawler;18;8;1.1;6;cave;6-9\n" +
+                    "frostling;22;10;1.0;8;tundra;6-9";
+                System.IO.File.WriteAllText(defsPath, seed);
+            }
+
+            foreach (var raw in System.IO.File.ReadAllLines(defsPath))
+            {
+                string line = raw.Trim();
+                if (line.Length == 0 || line.StartsWith("#")) continue;
+
+                string[] parts = line.Split(';');
+                if (parts.Length < 5) continue;
+
+                if (!int.TryParse(parts[1], out int hp)) continue;
+                if (!int.TryParse(parts[2], out int atk)) continue;
+                if (!double.TryParse(parts[3], out double speed)) continue;
+                if (!int.TryParse(parts[4], out int level)) continue;
+
+                var template = new EnemyTemplate
+                {
+                    Name = parts[0].Trim(),
+                    Health = hp,
+                    AttackDamage = atk,
+                    MoveSpeed = speed,
+                    Level = level
+                };
+
+                if (parts.Length >= 6 && !string.IsNullOrWhiteSpace(parts[5]))
+                {
+                    var biomes = new HashSet<BiomeType>();
+                    foreach (string token in parts[5].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    {
+                        if (token == "*") { biomes.Clear(); break; }
+                        if (Enum.TryParse<BiomeType>(token, true, out var biome))
+                            biomes.Add(biome);
+                    }
+                    if (biomes.Count > 0)
+                        template.AllowedBiomes = biomes;
+                }
+
+                if (parts.Length >= 7 && !string.IsNullOrWhiteSpace(parts[6]))
+                {
+                    foreach (string token in parts[6].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    {
+                        if (token == "*")
+                        {
+                            template.StageRanges.Clear();
+                            break;
+                        }
+
+                        string[] range = token.Split('-', StringSplitOptions.TrimEntries);
+                        if (range.Length == 1 && int.TryParse(range[0], out int exact))
+                            template.StageRanges.Add((exact, exact));
+                        else if (range.Length == 2 &&
+                                 int.TryParse(range[0], out int min) &&
+                                 int.TryParse(range[1], out int max))
+                            template.StageRanges.Add((Math.Min(min, max), Math.Max(min, max)));
+                    }
+                }
+
+                enemyTemplates.Add(template);
+            }
+        }
+
+        private void LoadBossTemplates()
+        {
+            bossTemplates.Clear();
+            string path = IOPath.Combine(AppContext.BaseDirectory, "boss_definitions.txt");
+
+            if (!System.IO.File.Exists(path))
+            {
+                string seed =
+                    "# name;health;attackdamage;movespeed;width(optional);height(optional)\n" +
+                    "The Goo;80;15;1.05;64;64\n" +
+                    "Fallen Knight;105;19;1.20;64;64\n" +
+                    "DB-5000;130;24;1.10;72;64";
+                System.IO.File.WriteAllText(path, seed);
+            }
+
+            foreach (var raw in System.IO.File.ReadAllLines(path))
+            {
+                string line = raw.Trim();
+                if (line.Length == 0 || line.StartsWith("#")) continue;
+
+                string[] parts = line.Split(';');
+                if (parts.Length < 4) continue;
+                if (!int.TryParse(parts[1], out int health)) continue;
+                if (!int.TryParse(parts[2], out int attackDamage)) continue;
+                if (!double.TryParse(parts[3], out double moveSpeed)) continue;
+
+                double width = 64;
+                double height = 64;
+                if (parts.Length >= 5 && double.TryParse(parts[4], out double parsedWidth))
+                    width = parsedWidth;
+                if (parts.Length >= 6 && double.TryParse(parts[5], out double parsedHeight))
+                    height = parsedHeight;
+
+                bossTemplates.Add(new BossTemplate
+                {
+                    Name = parts[0].Trim(),
+                    Health = Math.Max(20, health),
+                    AttackDamage = Math.Max(2, attackDamage),
+                    MoveSpeed = Math.Max(0.4, moveSpeed),
+                    Width = Math.Max(24, width),
+                    Height = Math.Max(24, height)
+                });
+            }
+
+            AreaDefinitions.SetBossTemplates(bossTemplates);
+        }
+
+        private void LoadItemTemplates()
+        {
+            itemTemplates.Clear();
+            string itemPath = IOPath.Combine(AppContext.BaseDirectory, "item_definitions.txt");
+
+            if (!System.IO.File.Exists(itemPath))
+            {
+                string seed =
+                    "Rusty Sword;2;12\n" +
+                    "Copper Sword;3;11\n" +
+                    "Iron Sword;4;10\n" +
+                    "Simple Bow;2;14\n" +
+                    "Hunter Bow;3;13\n" +
+                    "War Bow;4;12";
+                System.IO.File.WriteAllText(itemPath, seed);
+            }
+
+            foreach (var raw in System.IO.File.ReadAllLines(itemPath))
+            {
+                string line = raw.Trim();
+                if (line.Length == 0 || line.StartsWith("#")) continue;
+                string[] parts = line.Split(';');
+                if (parts.Length < 3) continue;
+                if (!int.TryParse(parts[1], out int dmg)) continue;
+                if (!int.TryParse(parts[2], out int cooldown)) continue;
+
+                string name = parts[0].Trim();
+                itemTemplates.Add(new ItemTemplate
+                {
+                    Name = name,
+                    Damage = Math.Max(1, dmg),
+                    CooldownFrames = Math.Max(1, cooldown),
+                    SpritePath = ResolveItemSpritePath(name)
+                });
+            }
+        }
+
+        private string? ResolveItemSpritePath(string itemName)
+        {
+            string normalized = itemName.Trim().ToLowerInvariant().Replace(" ", "_");
+            string dir = IOPath.Combine(AppContext.BaseDirectory, "Assets", "Item");
+            if (!System.IO.Directory.Exists(dir))
+                return null;
+
+            string direct = IOPath.Combine(dir, $"{normalized}.png");
+            if (System.IO.File.Exists(direct))
+                return direct;
+
+            string firstMatch = System.IO.Directory.GetFiles(dir, $"{normalized}*.png")
+                .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault() ?? "";
+            return firstMatch.Length > 0 ? firstMatch : null;
+        }
+
+        private int LoadSaveState()
+        {
+            string savePath = IOPath.Combine(AppContext.BaseDirectory, "save_state.txt");
+            if (!System.IO.File.Exists(savePath))
+                return 0;
+
+            try
+            {
+                var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var raw in System.IO.File.ReadAllLines(savePath))
+                {
+                    string line = raw.Trim();
+                    if (line.Length == 0 || line.StartsWith("#")) continue;
+                    int split = line.IndexOf('=');
+                    if (split <= 0) continue;
+                    values[line[..split].Trim()] = line[(split + 1)..].Trim();
+                }
+
+                playerData.Level = GetInt(values, "Level", playerData.Level);
+                playerData.Experience = GetInt(values, "Experience", playerData.Experience);
+                playerData.Gold = GetInt(values, "Gold", playerData.Gold);
+                playerData.Health = GetInt(values, "Health", playerData.Health);
+                playerData.MaxHealth = GetInt(values, "MaxHealth", playerData.MaxHealth);
+                highestUnlockedStage = Math.Max(1, GetInt(values, "HighestUnlockedStage", highestUnlockedStage));
+
+                playerData.Inventory.Clear();
+                int inventoryCount = Math.Max(0, GetInt(values, "InventoryCount", 0));
+                for (int i = 0; i < inventoryCount; i++)
+                {
+                    if (!values.TryGetValue($"Inventory{i}", out var line)) continue;
+                    var entry = ParseInventoryEntry(line);
+                    if (entry != null)
+                        playerData.Inventory.Add(entry);
+                }
+
+                int swordIndex = GetInt(values, "EquippedSwordIndex", -1);
+                int bowIndex = GetInt(values, "EquippedBowIndex", -1);
+                playerData.EquippedSword = (swordIndex >= 0 && swordIndex < playerData.Inventory.Count && playerData.Inventory[swordIndex].Item is WeaponItem sw && sw.WeaponCategory == WeaponCategory.Sword)
+                    ? sw : null;
+                playerData.EquippedBow = (bowIndex >= 0 && bowIndex < playerData.Inventory.Count && playerData.Inventory[bowIndex].Item is WeaponItem bw && bw.WeaponCategory == WeaponCategory.Bow)
+                    ? bw : null;
+
+                int stage = Math.Max(0, GetInt(values, "CurrentStage", 0));
+                return stage;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        private void SaveGameState()
+        {
+            string savePath = IOPath.Combine(AppContext.BaseDirectory, "save_state.txt");
+            var lines = new List<string>
+            {
+                "# TaskbarRPG Save State",
+                "# Editable for testing",
+                $"CurrentStage={currentStageNumber}",
+                $"HighestUnlockedStage={highestUnlockedStage}",
+                $"Level={playerData.Level}",
+                $"Experience={playerData.Experience}",
+                $"Gold={playerData.Gold}",
+                $"Health={playerData.Health}",
+                $"MaxHealth={playerData.MaxHealth}",
+                $"InventoryCount={playerData.Inventory.Count}",
+            };
+
+            for (int i = 0; i < playerData.Inventory.Count; i++)
+                lines.Add($"Inventory{i}={SerializeInventoryEntry(playerData.Inventory[i])}");
+
+            int equippedSwordIndex = playerData.Inventory.FindIndex(e => ReferenceEquals(e.Item, playerData.EquippedSword));
+            int equippedBowIndex = playerData.Inventory.FindIndex(e => ReferenceEquals(e.Item, playerData.EquippedBow));
+            lines.Add($"EquippedSwordIndex={equippedSwordIndex}");
+            lines.Add($"EquippedBowIndex={equippedBowIndex}");
+
+            System.IO.File.WriteAllLines(savePath, lines);
+        }
+
+        private void ResetProgress()
+        {
+            stageAreas.Clear();
+            previousArea = null;
+            highestUnlockedStage = 1;
+
+            playerData.Level = 1;
+            playerData.Experience = 0;
+            playerData.Gold = 10;
+            playerData.MaxHealth = 100;
+            playerData.Health = 100;
+            playerData.Inventory.Clear();
+            playerData.EquippedSword = null;
+            playerData.EquippedBow = null;
+            InitializePlayerData();
+
+            CloseAllPanels();
+            LoadArea(0, TransitionDirection.Right, animate: false);
+            SaveGameState();
+            ShowStatus("Progress reset.", 90);
+        }
+
+        private static int GetInt(Dictionary<string, string> values, string key, int fallback)
+        {
+            return values.TryGetValue(key, out var raw) && int.TryParse(raw, out int parsed)
+                ? parsed
+                : fallback;
+        }
+
+        private static string SerializeInventoryEntry(InventoryEntry entry)
+        {
+            string basePart = $"{entry.Item.Kind}|{entry.Item.Name.Replace("|", "")}|{entry.Quantity}|{entry.Item.BasePrice}";
+            return entry.Item switch
+            {
+                WeaponItem w => $"{basePart}|{w.WeaponCategory}|{w.Damage}|{w.CooldownFrames}",
+                ConsumableItem c => $"{basePart}|{c.HealAmount}",
+                AmmoItem a => $"{basePart}|{a.AmmoType.Replace("|", "")}",
+                _ => basePart
+            };
+        }
+
+        private static InventoryEntry? ParseInventoryEntry(string line)
+        {
+            string[] parts = line.Split('|');
+            if (parts.Length < 4) return null;
+
+            if (!Enum.TryParse<ItemKind>(parts[0], out var kind)) return null;
+            string name = parts[1];
+            if (!int.TryParse(parts[2], out int qty)) return null;
+            if (!int.TryParse(parts[3], out int basePrice)) return null;
+
+            ItemBase item = kind switch
+            {
+                ItemKind.Weapon when parts.Length >= 6 &&
+                    Enum.TryParse<WeaponCategory>(parts[4], out var category) &&
+                    int.TryParse(parts[5], out int dmg) =>
+                    new WeaponItem
+                    {
+                        Name = name,
+                        BasePrice = basePrice,
+                        WeaponCategory = category,
+                        Damage = dmg,
+                        CooldownFrames = parts.Length >= 7 && int.TryParse(parts[6], out int cd) ? cd : 10
+                    },
+                ItemKind.Consumable when parts.Length >= 5 &&
+                    int.TryParse(parts[4], out int heal) =>
+                    new ConsumableItem { Name = name, BasePrice = basePrice, HealAmount = heal },
+                ItemKind.Ammo when parts.Length >= 5 =>
+                    new AmmoItem { Name = name, BasePrice = basePrice, AmmoType = parts[4] },
+                _ => new AmmoItem { Name = name, BasePrice = basePrice, AmmoType = "Arrow" }
+            };
+
+            return new InventoryEntry { Item = item, Quantity = Math.Max(1, qty) };
         }
 
         private void LoadConfig()
@@ -2054,7 +2525,7 @@ namespace TaskbarRPG
                 Width = playerWidth,
                 Height = playerHeight,
                 Stretch = Stretch.Fill,
-                Source = playerIdleSprite,
+                Source = playerIdleFrames[0],
             };
 
             RenderOptions.SetBitmapScalingMode(player, BitmapScalingMode.NearestNeighbor);
@@ -3789,31 +4260,37 @@ namespace TaskbarRPG
         {
             animationFrameCounter++;
             double spriteDrawWidth = playerWidth;
+            BitmapImage activeFrame = playerIdleFrames[0];
 
-            if (isAttacking)
+            if (isAttacking && playerAttackFrames.Count > 0)
             {
-                player.Source = playerAttackSprite;
-                if (playerAttackSprite.PixelHeight > 0)
-                    spriteDrawWidth = playerHeight * ((double)playerAttackSprite.PixelWidth / playerAttackSprite.PixelHeight);
+                int attackIndex = (animationFrameCounter / 5) % playerAttackFrames.Count;
+                activeFrame = playerAttackFrames[attackIndex];
             }
-            else if (playerDamageCooldownFrames > 0 && playerDamagedSprite != null)
+            else if (playerDamageCooldownFrames > 0 && playerDamagedFrames.Count > 0)
             {
-                player.Source = playerDamagedSprite;
+                int damageIndex = (animationFrameCounter / 6) % playerDamagedFrames.Count;
+                activeFrame = playerDamagedFrames[damageIndex];
             }
-            else if (!isOnGround)
+            else if (!isOnGround && playerJumpFrames.Count > 0)
             {
-                player.Source = playerIdleSprite;
+                int jumpIndex = (animationFrameCounter / 7) % playerJumpFrames.Count;
+                activeFrame = playerJumpFrames[jumpIndex];
             }
             else if (Math.Abs(velocityX) > 0.1)
             {
-                player.Source = ((animationFrameCounter / 8) % 2 == 0)
-                    ? playerWalk1Sprite
-                    : playerWalk2Sprite;
+                int walkIndex = (animationFrameCounter / 8) % playerWalkFrames.Count;
+                activeFrame = playerWalkFrames[walkIndex];
             }
             else
             {
-                player.Source = playerIdleSprite;
+                int idleIndex = (animationFrameCounter / 12) % playerIdleFrames.Count;
+                activeFrame = playerIdleFrames[idleIndex];
             }
+
+            player.Source = activeFrame;
+            if (activeFrame.PixelHeight > 0)
+                spriteDrawWidth = playerHeight * ((double)activeFrame.PixelWidth / activeFrame.PixelHeight);
 
             player.RenderTransformOrigin = new Point(0.5, 0.5);
             player.RenderTransform = new ScaleTransform(facingRight ? 1 : -1, 1);
