@@ -83,6 +83,8 @@ name;damage;cooldown
 
 ## Sprite guide
 
+Player sprites are loaded from `Assets/Player` in the executable directory first, then fall back to built-in resources if missing.
+
 | Type | Folder | Naming | Suggested Resolution |
 |---|---|---|---|
 | Player idle | `Assets/Player` | `player_idle.png` | `32x32` |

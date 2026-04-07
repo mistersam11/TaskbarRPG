@@ -1037,6 +1037,11 @@ namespace TaskbarRPG
             return bitmap;
         }
 
+        private BitmapImage LoadPlayerSpriteFromDiskOrPack(string fileName, string fallbackPackPath)
+        {
+            return LoadOptionalPlayerSpriteFromDisk(fileName) ?? LoadSprite(fallbackPackPath);
+        }
+
         // Game state
         private Area currentArea = null!;
         private Area? previousArea = null;
@@ -1125,10 +1130,10 @@ namespace TaskbarRPG
             CreateMainPanel();
             CreateEdgeTexts();
 
-            playerIdleSprite = LoadSprite("Assets/Player/player_idle.png");
-            playerWalk1Sprite = LoadSprite("Assets/Player/player_walk1.png");
-            playerWalk2Sprite = LoadSprite("Assets/Player/player_walk2.png");
-            playerAttackSprite = LoadSprite("Assets/Player/player_attack.png");
+            playerIdleSprite = LoadPlayerSpriteFromDiskOrPack("player_idle.png", "Assets/Player/player_idle.png");
+            playerWalk1Sprite = LoadPlayerSpriteFromDiskOrPack("player_walk1.png", "Assets/Player/player_walk1.png");
+            playerWalk2Sprite = LoadPlayerSpriteFromDiskOrPack("player_walk2.png", "Assets/Player/player_walk2.png");
+            playerAttackSprite = LoadPlayerSpriteFromDiskOrPack("player_attack.png", "Assets/Player/player_attack.png");
             playerDamagedSprite = LoadOptionalPlayerSpriteFromDisk("player_damaged.png");
             playerArrowSprite = LoadOptionalPlayerSpriteFromDisk("arrow.png");
 

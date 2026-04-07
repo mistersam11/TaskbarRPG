@@ -70,7 +70,7 @@
     <Content Include="Assets\Item\**\*.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="Assets\Player\arrow*.png">
+    <Content Include="Assets\Player\*.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
