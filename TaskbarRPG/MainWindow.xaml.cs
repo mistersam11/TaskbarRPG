@@ -12,6 +12,7 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using System.Windows.Media.Imaging;
+using IOPath = System.IO.Path;
 
 namespace TaskbarRPG
 {
@@ -931,17 +932,17 @@ namespace TaskbarRPG
 
         private void LoadConfig()
         {
-            string configPath = Path.Combine(AppContext.BaseDirectory, "gameconfig.json");
+            string configPath = IOPath.Combine(AppContext.BaseDirectory, "gameconfig.json");
             var options = new JsonSerializerOptions { WriteIndented = true };
 
             try
             {
-                if (!File.Exists(configPath))
+                if (!System.IO.File.Exists(configPath))
                 {
-                    File.WriteAllText(configPath, JsonSerializer.Serialize(new GameConfig(), options));
+                    System.IO.File.WriteAllText(configPath, JsonSerializer.Serialize(new GameConfig(), options));
                 }
 
-                var loaded = JsonSerializer.Deserialize<GameConfig>(File.ReadAllText(configPath));
+                var loaded = JsonSerializer.Deserialize<GameConfig>(System.IO.File.ReadAllText(configPath));
                 gameConfig = loaded ?? new GameConfig();
             }
             catch
