@@ -2904,7 +2904,7 @@ namespace TaskbarRPG
         {
             if (playerDamageCooldownFrames > 0) return;
 
-            Rect playerRect = GetPlayerHitboxRect();
+            Rect playerRect = GetPlayerCollisionRect();
 
             foreach (var enemy in activeEnemies)
             {
@@ -3317,16 +3317,7 @@ namespace TaskbarRPG
                 BasePrice = w.BasePrice
             };
 
-        private Rect GetPlayerHitboxRect()
-        {
-            double hitboxW = Math.Max(6, Math.Min(playerWidth, playerHitboxWidth));
-            double hitboxH = Math.Max(6, Math.Min(playerHeight, playerHitboxHeight));
-            double hitboxX = playerX + ((playerWidth - hitboxW) / 2.0);
-            double hitboxY = playerY + (playerHeight - hitboxH);
-            return new Rect(hitboxX, hitboxY, hitboxW, hitboxH);
-        }
-
-        private Rect GetPlayerHitboxRect()
+        private Rect GetPlayerCollisionRect()
         {
             double hitboxW = Math.Max(6, Math.Min(playerWidth, playerHitboxWidth));
             double hitboxH = Math.Max(6, Math.Min(playerHeight, playerHitboxHeight));
@@ -3375,7 +3366,7 @@ namespace TaskbarRPG
             Canvas.SetLeft(player, playerDrawX);
             Canvas.SetTop(player, playerY);
 
-            Rect playerHitbox = GetPlayerHitboxRect();
+            Rect playerHitbox = GetPlayerCollisionRect();
             playerHitboxDebug.Width = playerHitbox.Width;
             playerHitboxDebug.Height = playerHitbox.Height;
             Canvas.SetLeft(playerHitboxDebug, playerHitbox.X);
