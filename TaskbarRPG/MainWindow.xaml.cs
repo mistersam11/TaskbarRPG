@@ -718,7 +718,7 @@ namespace TaskbarRPG
     {
         public VariableZone Zone = null!;
         public FrameworkElement Building = null!;
-        public TextBlock BuildingLabel = null!;
+        public TextBlock? BuildingLabel = null;
 
         public Image Npc = null!;
         public TextBlock NpcLabel = null!;
@@ -2955,17 +2955,6 @@ namespace TaskbarRPG
                     };
                 }
 
-                var buildingLabel = new TextBlock
-                {
-                    Text = zone.Content.DisplayName,
-                    Foreground = Brushes.White,
-                    FontSize = 11,
-                    FontFamily = new FontFamily("Consolas"),
-                    Width = 110,
-                    TextAlignment = TextAlignment.Center,
-                };
-                ApplyReadableTextStyle(buildingLabel);
-
                 var npcIdle1 = GetShopNpcIdle1Sprite(zone.Content);
                 var npcIdle2 = GetShopNpcIdle2Sprite(zone.Content);
 
@@ -2991,12 +2980,10 @@ namespace TaskbarRPG
                 ApplyReadableTextStyle(npcLabel);
 
                 GameCanvas.Children.Add(building);
-                GameCanvas.Children.Add(buildingLabel);
                 GameCanvas.Children.Add(npc);
                 GameCanvas.Children.Add(npcLabel);
 
                 Panel.SetZIndex(building, 3);
-                Panel.SetZIndex(buildingLabel, 4);
                 Panel.SetZIndex(npc, 6);
                 Panel.SetZIndex(npcLabel, 7);
 
@@ -3010,8 +2997,6 @@ namespace TaskbarRPG
 
                 Canvas.SetLeft(building, buildingX);
                 Canvas.SetTop(building, buildingY);
-                Canvas.SetLeft(buildingLabel, buildingX - 7);
-                Canvas.SetTop(buildingLabel, buildingY - 18);
 
                 Canvas.SetLeft(npc, npcX);
                 Canvas.SetTop(npc, npcY);
@@ -3023,7 +3008,6 @@ namespace TaskbarRPG
                 {
                     Zone = zone,
                     Building = building,
-                    BuildingLabel = buildingLabel,
                     Npc = npc,
                     NpcLabel = npcLabel,
                     NpcIdle1 = npcIdle1,
@@ -3038,7 +3022,8 @@ namespace TaskbarRPG
             foreach (var visual in activeZoneVisuals)
             {
                 GameCanvas.Children.Remove(visual.Building);
-                GameCanvas.Children.Remove(visual.BuildingLabel);
+                if (visual.BuildingLabel != null)
+                    GameCanvas.Children.Remove(visual.BuildingLabel);
                 GameCanvas.Children.Remove(visual.Npc);
                 GameCanvas.Children.Remove(visual.NpcLabel);
             }
