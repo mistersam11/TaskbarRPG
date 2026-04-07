@@ -3,21 +3,31 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using System.Windows.Media.Imaging;
+using IOPath = System.IO.Path;
 
 namespace TaskbarRPG
 {
     public enum AreaType
     {
         Town,
+        Adventure,
+    }
+
+    public enum BiomeType
+    {
         Plains,
         Cave,
+        Forest,
+        Tundra
     }
 
     public enum TransitionDirection
@@ -42,6 +52,8 @@ namespace TaskbarRPG
     public enum PanelMode
     {
         None,
+        SystemMenu,
+        ResetConfirm,
         FastTravel,
         Stats,
         Map,
@@ -81,6 +93,8 @@ namespace TaskbarRPG
     {
         public WeaponCategory WeaponCategory { get; set; }
         public int Damage { get; set; }
+        public int CooldownFrames { get; set; } = 10;
+        public string? SpritePath { get; set; } = null;
 
         public WeaponItem()
         {
@@ -88,7 +102,18 @@ namespace TaskbarRPG
             Stackable = false;
         }
 
-        public override string GetDisplayText() => $"{Name} (DMG {Damage})";
+        public override string GetDisplayText() => $"{Name} (DMG {Damage}, CD {CooldownFrames})";
+    }
+
+    public class ItemTemplate
+    {
+        public string Name { get; set; } = "";
+        public int Damage { get; set; } = 1;
+        public int CooldownFrames { get; set; } = 10;
+        public string? SpritePath { get; set; } = null;
+
+        public WeaponCategory Category =>
+            Name.Contains("bow", StringComparison.OrdinalIgnoreCase) ? WeaponCategory.Bow : WeaponCategory.Sword;
     }
 
     public class ConsumableItem : ItemBase
@@ -150,7 +175,7 @@ namespace TaskbarRPG
 
         public List<InventoryEntry> Inventory { get; set; } = new();
 
-        public int NextLevelXp => Level * 12;
+        public int NextLevelXp => 20 + (Level * 12) + (Level * Level * 2);
         public int BaseDamage => Level;
 
         public int GetArrowCount()
@@ -171,6 +196,22 @@ namespace TaskbarRPG
 
             return true;
         }
+    }
+
+    public class GameConfig
+    {
+        public bool Debug { get; set; } = false;
+        public int AttackPosition { get; set; } = 8;
+        public double PlayerHitboxWidth { get; set; } = 24;
+        public double PlayerHitboxHeight { get; set; } = 28;
+        public double MoveSpeed { get; set; } = 4.4;
+        public double Gravity { get; set; } = 0.8;
+        public double JumpStrength { get; set; } = -7.4;
+        public double ArrowHitboxWidth { get; set; } = 10;
+        public double ArrowHitboxHeight { get; set; } = 6;
+        public double ArrowSpeed { get; set; } = 8.5;
+        public int ArrowDurationFrames { get; set; } = 35;
+        public int StatusFrames { get; set; } = 60;
     }
 
     public class VariableZone
@@ -203,6 +244,7 @@ namespace TaskbarRPG
     public class EnemyDefinition
     {
         public string Name { get; set; } = "Enemy";
+        public int PowerLevel { get; set; } = 1;
         public double X { get; set; }
         public double PatrolRange { get; set; } = 80;
         public double AggroRange { get; set; } = 180;
@@ -217,30 +259,73 @@ namespace TaskbarRPG
         public double Height { get; set; } = 24;
     }
 
+    public class EnemyTemplate
+    {
+        public string Name { get; set; } = "Enemy";
+        public int Health { get; set; } = 10;
+        public int AttackDamage { get; set; } = 4;
+        public double MoveSpeed { get; set; } = 1.0;
+        public int Level { get; set; } = 1;
+        public HashSet<BiomeType>? AllowedBiomes { get; set; } = null;
+        public List<(int Min, int Max)> StageRanges { get; set; } = new();
+
+        public bool CanSpawnIn(int stage, BiomeType biome)
+        {
+            bool biomeAllowed = AllowedBiomes == null || AllowedBiomes.Count == 0 || AllowedBiomes.Contains(biome);
+            if (!biomeAllowed) return false;
+
+            if (StageRanges.Count > 0)
+                return StageRanges.Any(r => stage >= r.Min && stage <= r.Max);
+
+            int blockStart = ((Math.Max(1, Level) - 1) / 5) * 5 + 1;
+            return stage >= blockStart && stage <= blockStart + 3;
+        }
+    }
+
+    public class AreaTemplate
+    {
+        public string Name { get; set; } = "Wilderness";
+        public List<(int Min, int Max)> StageRanges { get; set; } = new();
+        public List<string> EnemyNames { get; set; } = new();
+        public Color GroundColor { get; set; } = Color.FromRgb(90, 170, 80);
+
+        public bool CanAppearAtStage(int stage)
+        {
+            if (StageRanges.Count == 0) return true;
+            return StageRanges.Any(r => stage >= r.Min && stage <= r.Max);
+        }
+    }
+
     public class Area
     {
         public AreaType Type { get; set; }
         public string Name { get; set; } = "";
         public Color GroundColor { get; set; }
-        public int LevelRequirement { get; set; }
-        public AreaType? LeftExit { get; set; }
-        public AreaType? RightExit { get; set; }
+        public BiomeType? Biome { get; set; }
+        public int StageNumber { get; set; }
+        public bool IsBossArea { get; set; }
         public VariableZone[] Zones { get; set; } = new VariableZone[6];
         public List<EnemyDefinition> EnemySpawns { get; set; } = new();
     }
 
     public static class AreaDefinitions
     {
-        public static readonly List<Area> Ordered = new()
+        private static readonly Dictionary<int, string> BossNames = new()
         {
-            new Area
+            [5] = "The Goo",
+            [10] = "Fallen Knight",
+            [15] = "DB-5000",
+        };
+
+        public static Area GetTown()
+        {
+            return new Area
             {
                 Type = AreaType.Town,
                 Name = "Town",
+                StageNumber = 0,
+                IsBossArea = false,
                 GroundColor = Color.FromRgb(194, 154, 108),
-                LevelRequirement = 0,
-                LeftExit = null,
-                RightExit = AreaType.Plains,
                 Zones = new VariableZone[]
                 {
                     new VariableZone
@@ -287,97 +372,120 @@ namespace TaskbarRPG
                     new VariableZone { SlotIndex = 5, X = 1430, Content = null },
                 },
                 EnemySpawns = new List<EnemyDefinition>()
-            },
+            };
+        }
 
-            new Area
-            {
-                Type = AreaType.Plains,
-                Name = "Plains",
-                GroundColor = Color.FromRgb(90, 170, 80),
-                LevelRequirement = 0,
-                LeftExit = AreaType.Town,
-                RightExit = AreaType.Cave,
-                Zones = CreateEmptyZones(),
-                EnemySpawns = new List<EnemyDefinition>
+        public static Area CreateStageArea(int stage, Random rng, IReadOnlyList<AreaTemplate> areaTemplates, IReadOnlyList<EnemyTemplate> enemyTemplates)
+        {
+            if (stage % 5 == 0)
+                return CreateBossArea(stage);
+
+            var eligibleAreas = areaTemplates.Where(a => a.CanAppearAtStage(stage)).ToList();
+            var chosenArea = eligibleAreas.Count > 0
+                ? eligibleAreas[rng.Next(eligibleAreas.Count)]
+                : new AreaTemplate
                 {
-                    new EnemyDefinition
-                    {
-                        Name = "Slime",
-                        X = 450,
-                        PatrolRange = 90,
-                        AggroRange = 170,
-                        Speed = 1.0,
-                        MaxHealth = 5,
-                        ContactDamage = 5,
-                        XpReward = 4,
-                        GoldMin = 1,
-                        GoldMax = 2,
-                        Color = Color.FromRgb(80, 220, 130),
-                    },
-                    new EnemyDefinition
-                    {
-                        Name = "Slime",
-                        X = 980,
-                        PatrolRange = 120,
-                        AggroRange = 170,
-                        Speed = 1.1,
-                        MaxHealth = 5,
-                        ContactDamage = 5,
-                        XpReward = 4,
-                        GoldMin = 1,
-                        GoldMax = 2,
-                        Color = Color.FromRgb(50, 190, 100),
-                    }
-                }
-            },
+                    Name = "Wilderness",
+                    StageRanges = new List<(int, int)> { (1, int.MaxValue) },
+                    EnemyNames = enemyTemplates.Select(e => e.Name).ToList(),
+                    GroundColor = Color.FromRgb(90, 170, 80)
+                };
 
-            new Area
+            int count = rng.Next(4, 9);
+            var spawns = new List<EnemyDefinition>();
+            double spacing = 1300.0 / count;
+            var enemyMap = enemyTemplates.ToDictionary(e => e.Name, e => e, StringComparer.OrdinalIgnoreCase);
+            var allowedEnemies = chosenArea.EnemyNames
+                .Where(name => enemyMap.ContainsKey(name))
+                .Select(name => enemyMap[name])
+                .ToList();
+
+            for (int i = 0; i < count; i++)
             {
-                Type = AreaType.Cave,
-                Name = "Cave",
-                GroundColor = Color.FromRgb(95, 95, 105),
-                LevelRequirement = 5,
-                LeftExit = AreaType.Plains,
-                RightExit = null,
-                Zones = CreateEmptyZones(),
-                EnemySpawns = new List<EnemyDefinition>
+                EnemyTemplate chosen = allowedEnemies.Count > 0
+                    ? allowedEnemies[rng.Next(allowedEnemies.Count)]
+                    : new EnemyTemplate { Name = "Wisp", Health = 8, AttackDamage = 4, MoveSpeed = 1.0, Level = stage };
+
+                double hpScale = 1.0 + (stage * 0.06);
+                double dmgScale = 1.0 + (stage * 0.04);
+                int enemyLevel = Math.Max(1, chosen.Level + (stage / 5));
+                spawns.Add(new EnemyDefinition
                 {
-                    new EnemyDefinition
-                    {
-                        Name = "Bat",
-                        X = 520,
-                        PatrolRange = 140,
-                        AggroRange = 210,
-                        Speed = 1.4,
-                        MaxHealth = 9,
-                        ContactDamage = 8,
-                        XpReward = 8,
-                        GoldMin = 3,
-                        GoldMax = 5,
-                        Color = Color.FromRgb(150, 80, 180),
-                    },
-                    new EnemyDefinition
-                    {
-                        Name = "Crawler",
-                        X = 1180,
-                        PatrolRange = 80,
-                        AggroRange = 180,
-                        Speed = 1.2,
-                        MaxHealth = 12,
-                        ContactDamage = 10,
-                        XpReward = 10,
-                        GoldMin = 4,
-                        GoldMax = 6,
-                        Color = Color.FromRgb(170, 70, 70),
-                    }
-                }
-            },
-        };
+                    Name = chosen.Name,
+                    PowerLevel = enemyLevel,
+                    X = 160 + (i * spacing) + rng.Next(-25, 26),
+                    PatrolRange = 90 + rng.Next(0, 70),
+                    AggroRange = 160 + rng.Next(0, 70),
+                    Speed = Math.Max(0.4, chosen.MoveSpeed),
+                    MaxHealth = Math.Max(2, (int)Math.Round(chosen.Health * hpScale)),
+                    ContactDamage = Math.Max(1, (int)Math.Round(chosen.AttackDamage * dmgScale)),
+                    XpReward = Math.Max(4, 6 + (enemyLevel * 2)),
+                    GoldMin = Math.Max(1, enemyLevel / 2),
+                    GoldMax = Math.Max(2, enemyLevel + 2),
+                    Color = Color.FromRgb(
+                        (byte)rng.Next(70, 210),
+                        (byte)rng.Next(70, 210),
+                        (byte)rng.Next(70, 210)),
+                });
+            }
 
-        public static readonly Dictionary<AreaType, Area> All =
-            Ordered.ToDictionary(a => a.Type, a => a);
+            return new Area
+            {
+                Type = AreaType.Adventure,
+                Name = $"Stage {stage} - {chosenArea.Name}",
+                GroundColor = chosenArea.GroundColor,
+                Biome = ParseBiomeName(chosenArea.Name),
+                StageNumber = stage,
+                IsBossArea = false,
+                Zones = CreateEmptyZones(),
+                EnemySpawns = spawns
+            };
+        }
 
-        public static Area Get(AreaType type) => All[type];
+        private static BiomeType? ParseBiomeName(string areaName)
+        {
+            return Enum.TryParse<BiomeType>(areaName, true, out var biome)
+                ? biome
+                : null;
+        }
+
+        private static Area CreateBossArea(int stage)
+        {
+            string bossName = BossNames.TryGetValue(stage, out var knownBoss)
+                ? knownBoss
+                : "Ancient Tyrant";
+
+            int power = Math.Max(3, stage);
+            var boss = new EnemyDefinition
+            {
+                Name = bossName,
+                PowerLevel = Math.Max(1, stage + 2),
+                X = 820,
+                PatrolRange = 170,
+                AggroRange = 260,
+                Speed = 1.0 + Math.Min(1.1, power * 0.03),
+                MaxHealth = 50 + power * 6,
+                ContactDamage = 10 + power,
+                XpReward = 20 + power * 2,
+                GoldMin = 12 + power,
+                GoldMax = 20 + power * 2,
+                Width = 40,
+                Height = 44,
+                Color = Color.FromRgb(180, 60, 70),
+            };
+
+            return new Area
+            {
+                Type = AreaType.Adventure,
+                Name = $"Stage {stage} - Boss",
+                GroundColor = Color.FromRgb(70, 65, 75),
+                Biome = null,
+                StageNumber = stage,
+                IsBossArea = true,
+                Zones = CreateEmptyZones(),
+                EnemySpawns = new List<EnemyDefinition> { boss }
+            };
+        }
 
         private static VariableZone[] CreateEmptyZones()
         {
@@ -402,6 +510,7 @@ namespace TaskbarRPG
                 Name = "Old Sword",
                 WeaponCategory = WeaponCategory.Sword,
                 Damage = 2,
+                CooldownFrames = 12,
                 BasePrice = 8,
             };
         }
@@ -413,6 +522,7 @@ namespace TaskbarRPG
                 Name = "Simple Bow",
                 WeaponCategory = WeaponCategory.Bow,
                 Damage = 1,
+                CooldownFrames = 14,
                 BasePrice = 10,
             };
         }
@@ -449,6 +559,7 @@ namespace TaskbarRPG
                 Name = $"{prefixes[rng.Next(prefixes.Length)]} {suffixes[rng.Next(suffixes.Length)]}",
                 WeaponCategory = WeaponCategory.Sword,
                 Damage = damage,
+                CooldownFrames = rng.Next(8, 15),
                 BasePrice = price,
             };
         }
@@ -465,6 +576,7 @@ namespace TaskbarRPG
                 Name = $"{prefixes[rng.Next(prefixes.Length)]} {suffixes[rng.Next(suffixes.Length)]}",
                 WeaponCategory = WeaponCategory.Bow,
                 Damage = damage,
+                CooldownFrames = rng.Next(10, 17),
                 BasePrice = price,
             };
         }
@@ -478,16 +590,16 @@ namespace TaskbarRPG
         private readonly Rectangle overlay;
         private readonly Canvas canvas;
         private readonly DispatcherTimer timer;
-        private readonly Action<AreaType, TransitionDirection> onMidpoint;
+        private readonly Action<int, TransitionDirection> onMidpoint;
 
         private bool fadingOut = true;
-        private AreaType pendingArea;
+        private int pendingStage;
         private TransitionDirection pendingDir;
         private double opacity = 0;
 
         public bool IsActive { get; private set; }
 
-        public AreaTransition(Canvas canvas, Action<AreaType, TransitionDirection> onMidpoint)
+        public AreaTransition(Canvas canvas, Action<int, TransitionDirection> onMidpoint)
         {
             this.canvas = canvas;
             this.onMidpoint = onMidpoint;
@@ -506,11 +618,11 @@ namespace TaskbarRPG
             timer.Tick += Tick;
         }
 
-        public void Start(AreaType target, TransitionDirection dir)
+        public void Start(int targetStage, TransitionDirection dir)
         {
             if (IsActive) return;
 
-            pendingArea = target;
+            pendingStage = targetStage;
             pendingDir = dir;
             fadingOut = true;
             opacity = 0;
@@ -534,7 +646,7 @@ namespace TaskbarRPG
                 {
                     opacity = 1.0;
                     fadingOut = false;
-                    onMidpoint(pendingArea, pendingDir);
+                    onMidpoint(pendingStage, pendingDir);
                 }
             }
             else
@@ -573,7 +685,15 @@ namespace TaskbarRPG
     public class SpawnedEnemy
     {
         public EnemyDefinition Definition = null!;
-        public Rectangle Body = null!;
+        public FrameworkElement Body = null!;
+        public Image? BodySprite = null;
+        public List<BitmapImage> WalkFrames { get; set; } = new();
+        public List<BitmapImage> AttackFrames { get; set; } = new();
+        public Rectangle AttackHitbox = null!;
+        public bool IsAttacking = false;
+        public int AttackFramesRemaining = 0;
+        public int AttackCooldownFrames = 0;
+        public bool AttackDamageApplied = false;
         public TextBlock Label = null!;
         public Rectangle HealthBg = null!;
         public Rectangle HealthFill = null!;
@@ -589,7 +709,7 @@ namespace TaskbarRPG
 
     public class ArrowProjectile
     {
-        public Rectangle Body = null!;
+        public FrameworkElement Body = null!;
         public double X;
         public double Y;
         public int Direction;
@@ -620,6 +740,7 @@ namespace TaskbarRPG
         private const int VK_UP = 0x26;
         private const int VK_RIGHT = 0x27;
         private const int VK_SPACE = 0x20;
+        private const int VK_ESCAPE = 0x1B;
         private const int VK_A = 0x41;
         private const int VK_C = 0x43;
         private const int VK_D = 0x44;
@@ -728,6 +849,7 @@ namespace TaskbarRPG
         private DispatcherTimer timer = null!;
         private Image player = null!;
         private Rectangle attackHitbox = null!;
+        private Rectangle playerHitboxDebug = null!;
         private Rectangle groundRect = null!;
 
         private Rectangle playerHealthBg = null!;
@@ -746,6 +868,7 @@ namespace TaskbarRPG
         private BitmapImage playerWalk1Sprite = null!;
         private BitmapImage playerWalk2Sprite = null!;
         private BitmapImage playerAttackSprite = null!;
+        private BitmapImage? playerArrowSprite = null;
 
         private void UpdateNpcAnimations()
         {
@@ -811,16 +934,63 @@ namespace TaskbarRPG
             return new BitmapImage(new Uri($"pack://application:,,,/{relativePath}", UriKind.Absolute));
         }
 
+        private List<BitmapImage> LoadEnemyFrames(string enemyName, string action)
+        {
+            var frames = new List<BitmapImage>();
+            string normalized = enemyName.Trim().ToLowerInvariant().Replace(" ", "_");
+            string dir = IOPath.Combine(AppContext.BaseDirectory, "Assets", "Enemy");
+            if (!System.IO.Directory.Exists(dir))
+                return frames;
+
+            string pattern = $"{normalized}_{action}*.png";
+            foreach (string file in System.IO.Directory
+                .GetFiles(dir, pattern)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+            {
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.UriSource = new Uri(file, UriKind.Absolute);
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.EndInit();
+                bitmap.Freeze();
+                frames.Add(bitmap);
+            }
+
+            return frames;
+        }
+
+        private BitmapImage? LoadOptionalPlayerSpriteFromDisk(string fileName)
+        {
+            string path = IOPath.Combine(AppContext.BaseDirectory, "Assets", "Player", fileName);
+            if (!System.IO.File.Exists(path))
+                return null;
+
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.UriSource = new Uri(path, UriKind.Absolute);
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.EndInit();
+            bitmap.Freeze();
+            return bitmap;
+        }
+
         // Game state
         private Area currentArea = null!;
         private Area? previousArea = null;
         private AreaTransition transition = null!;
+        private readonly Dictionary<int, Area> stageAreas = new();
+        private int currentStageNumber = 0;
+        private int highestUnlockedStage = 1;
 
         private readonly List<SpawnedZoneVisual> activeZoneVisuals = new();
         private readonly List<SpawnedEnemy> activeEnemies = new();
         private readonly List<ArrowProjectile> activeProjectiles = new();
+        private readonly List<AreaTemplate> areaTemplates = new();
+        private readonly List<EnemyTemplate> enemyTemplates = new();
+        private readonly List<ItemTemplate> itemTemplates = new();
 
         private readonly PlayerData playerData = new();
+        private GameConfig gameConfig = new();
 
         // Physics / layout
         private double playAreaHeight = 140;
@@ -833,18 +1003,26 @@ namespace TaskbarRPG
         private double moveSpeed = 4.4;
         private double gravity = 0.8;
         private double jumpStrength = -7.4;
+        private double playerHitboxWidth = 24;
+        private double playerHitboxHeight = 28;
+        private double arrowHitboxWidth = 10;
+        private double arrowHitboxHeight = 6;
+        private double arrowSpeed = 8.5;
+        private int arrowDurationFrames = 35;
         private double groundY = 0;
         private bool isOnGround = false;
         private bool facingRight = true;
         private double groundStripHeight = 14;
 
         // Game state flags
-        private bool controlsEnabled = false;
+        private bool controlsEnabled = true;
         private PanelMode panelMode = PanelMode.None;
 
         private bool isAttacking = false;
         private int attackFramesRemaining = 0;
         private int attackDurationFrames = 8;
+        private int meleeCooldownFrames = 0;
+        private int bowCooldownFrames = 0;
 
         private SpawnedZoneVisual? currentInteractableZone = null;
         private ShopZoneContent? activeShop = null;
@@ -869,7 +1047,12 @@ namespace TaskbarRPG
         // -----------------------------------------------------------------------
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
+            LoadConfig();
+            LoadAreaTemplates();
+            LoadEnemyTemplates();
+            LoadItemTemplates();
             InitializePlayerData();
+            int startStage = LoadSaveState();
             PositionAboveTaskbar();
             MakeClickThrough();
             CreateBackground();
@@ -881,14 +1064,410 @@ namespace TaskbarRPG
             playerWalk1Sprite = LoadSprite("Assets/Player/player_walk1.png");
             playerWalk2Sprite = LoadSprite("Assets/Player/player_walk2.png");
             playerAttackSprite = LoadSprite("Assets/Player/player_attack.png");
+            playerArrowSprite = LoadOptionalPlayerSpriteFromDisk("arrow.png");
 
             CreatePlayer();
             SetupTransition();
             InstallKeyboardHook();
 
-            LoadArea(AreaType.Town, TransitionDirection.Right, animate: false);
+            LoadArea(startStage, TransitionDirection.Right, animate: false);
             StartGameLoop();
 
+        }
+
+        private void LoadConfig()
+        {
+            string configPath = IOPath.Combine(AppContext.BaseDirectory, "gameconfig.json");
+            var options = new JsonSerializerOptions { WriteIndented = true };
+
+            try
+            {
+                if (!System.IO.File.Exists(configPath))
+                {
+                    System.IO.File.WriteAllText(configPath, JsonSerializer.Serialize(new GameConfig(), options));
+                }
+
+                var loaded = JsonSerializer.Deserialize<GameConfig>(System.IO.File.ReadAllText(configPath));
+                gameConfig = loaded ?? new GameConfig();
+            }
+            catch
+            {
+                gameConfig = new GameConfig();
+            }
+
+            moveSpeed = gameConfig.MoveSpeed;
+            gravity = gameConfig.Gravity;
+            jumpStrength = gameConfig.JumpStrength;
+            playerHitboxWidth = Math.Max(6, Math.Min(playerWidth, gameConfig.PlayerHitboxWidth));
+            playerHitboxHeight = Math.Max(6, Math.Min(playerHeight, gameConfig.PlayerHitboxHeight));
+            arrowHitboxWidth = Math.Max(2, gameConfig.ArrowHitboxWidth);
+            arrowHitboxHeight = Math.Max(2, gameConfig.ArrowHitboxHeight);
+            arrowSpeed = Math.Max(1, gameConfig.ArrowSpeed);
+            arrowDurationFrames = Math.Max(1, gameConfig.ArrowDurationFrames);
+        }
+
+        private void LoadAreaTemplates()
+        {
+            areaTemplates.Clear();
+            string path = IOPath.Combine(AppContext.BaseDirectory, "area_definitions.txt");
+
+            if (!System.IO.File.Exists(path))
+            {
+                string seed =
+                    "# name;stages;enemies;colorHex(optional)\n" +
+                    "Plains;1-4,16-19;slime,wolf;5AAA50\n" +
+                    "Cave;6-9,21-24;bat,crawler;5F5F69\n" +
+                    "Forest;11-14,26-29;wolf,slime;3C8246\n" +
+                    "Tundra;31-34;frostling,bat;8CAABE";
+                System.IO.File.WriteAllText(path, seed);
+            }
+
+            foreach (var raw in System.IO.File.ReadAllLines(path))
+            {
+                string line = raw.Trim();
+                if (line.Length == 0 || line.StartsWith("#")) continue;
+                var parts = line.Split(';');
+                if (parts.Length < 3) continue;
+
+                var template = new AreaTemplate
+                {
+                    Name = parts[0].Trim(),
+                    StageRanges = ParseStageRanges(parts[1]),
+                    EnemyNames = parts[2]
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .ToList(),
+                    GroundColor = parts.Length >= 4 ? ParseColorHex(parts[3], Color.FromRgb(90, 170, 80)) : Color.FromRgb(90, 170, 80)
+                };
+
+                areaTemplates.Add(template);
+            }
+        }
+
+        private static List<(int Min, int Max)> ParseStageRanges(string value)
+        {
+            var ranges = new List<(int Min, int Max)>();
+            foreach (var token in value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (token == "*")
+                {
+                    ranges.Clear();
+                    return ranges;
+                }
+
+                var split = token.Split('-', StringSplitOptions.TrimEntries);
+                if (split.Length == 1 && int.TryParse(split[0], out int exact))
+                {
+                    ranges.Add((exact, exact));
+                }
+                else if (split.Length == 2 &&
+                         int.TryParse(split[0], out int min) &&
+                         int.TryParse(split[1], out int max))
+                {
+                    ranges.Add((Math.Min(min, max), Math.Max(min, max)));
+                }
+            }
+            return ranges;
+        }
+
+        private static Color ParseColorHex(string raw, Color fallback)
+        {
+            string value = raw.Trim().TrimStart('#');
+            if (value.Length != 6)
+                return fallback;
+            try
+            {
+                byte r = Convert.ToByte(value[..2], 16);
+                byte g = Convert.ToByte(value.Substring(2, 2), 16);
+                byte b = Convert.ToByte(value.Substring(4, 2), 16);
+                return Color.FromRgb(r, g, b);
+            }
+            catch
+            {
+                return fallback;
+            }
+        }
+
+        private void LoadEnemyTemplates()
+        {
+            enemyTemplates.Clear();
+            string defsPath = IOPath.Combine(AppContext.BaseDirectory, "enemy_definitions.txt");
+
+            if (!System.IO.File.Exists(defsPath))
+            {
+                string seed =
+                    "slime;10;4;0.9;1;plains;\n" +
+                    "bat;9;5;1.4;2;cave;\n" +
+                    "wolf;14;6;1.2;4;forest;\n" +
+                    "crawler;18;8;1.1;6;cave;6-9\n" +
+                    "frostling;22;10;1.0;8;tundra;6-9";
+                System.IO.File.WriteAllText(defsPath, seed);
+            }
+
+            foreach (var raw in System.IO.File.ReadAllLines(defsPath))
+            {
+                string line = raw.Trim();
+                if (line.Length == 0 || line.StartsWith("#")) continue;
+
+                string[] parts = line.Split(';');
+                if (parts.Length < 5) continue;
+
+                if (!int.TryParse(parts[1], out int hp)) continue;
+                if (!int.TryParse(parts[2], out int atk)) continue;
+                if (!double.TryParse(parts[3], out double speed)) continue;
+                if (!int.TryParse(parts[4], out int level)) continue;
+
+                var template = new EnemyTemplate
+                {
+                    Name = parts[0].Trim(),
+                    Health = hp,
+                    AttackDamage = atk,
+                    MoveSpeed = speed,
+                    Level = level
+                };
+
+                if (parts.Length >= 6 && !string.IsNullOrWhiteSpace(parts[5]))
+                {
+                    var biomes = new HashSet<BiomeType>();
+                    foreach (string token in parts[5].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    {
+                        if (token == "*") { biomes.Clear(); break; }
+                        if (Enum.TryParse<BiomeType>(token, true, out var biome))
+                            biomes.Add(biome);
+                    }
+                    if (biomes.Count > 0)
+                        template.AllowedBiomes = biomes;
+                }
+
+                if (parts.Length >= 7 && !string.IsNullOrWhiteSpace(parts[6]))
+                {
+                    foreach (string token in parts[6].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    {
+                        if (token == "*")
+                        {
+                            template.StageRanges.Clear();
+                            break;
+                        }
+
+                        string[] range = token.Split('-', StringSplitOptions.TrimEntries);
+                        if (range.Length == 1 && int.TryParse(range[0], out int exact))
+                            template.StageRanges.Add((exact, exact));
+                        else if (range.Length == 2 &&
+                                 int.TryParse(range[0], out int min) &&
+                                 int.TryParse(range[1], out int max))
+                            template.StageRanges.Add((Math.Min(min, max), Math.Max(min, max)));
+                    }
+                }
+
+                enemyTemplates.Add(template);
+            }
+        }
+
+        private void LoadItemTemplates()
+        {
+            itemTemplates.Clear();
+            string itemPath = IOPath.Combine(AppContext.BaseDirectory, "item_definitions.txt");
+
+            if (!System.IO.File.Exists(itemPath))
+            {
+                string seed =
+                    "Rusty Sword;2;12\n" +
+                    "Copper Sword;3;11\n" +
+                    "Iron Sword;4;10\n" +
+                    "Simple Bow;2;14\n" +
+                    "Hunter Bow;3;13\n" +
+                    "War Bow;4;12";
+                System.IO.File.WriteAllText(itemPath, seed);
+            }
+
+            foreach (var raw in System.IO.File.ReadAllLines(itemPath))
+            {
+                string line = raw.Trim();
+                if (line.Length == 0 || line.StartsWith("#")) continue;
+                string[] parts = line.Split(';');
+                if (parts.Length < 3) continue;
+                if (!int.TryParse(parts[1], out int dmg)) continue;
+                if (!int.TryParse(parts[2], out int cooldown)) continue;
+
+                string name = parts[0].Trim();
+                itemTemplates.Add(new ItemTemplate
+                {
+                    Name = name,
+                    Damage = Math.Max(1, dmg),
+                    CooldownFrames = Math.Max(1, cooldown),
+                    SpritePath = ResolveItemSpritePath(name)
+                });
+            }
+        }
+
+        private string? ResolveItemSpritePath(string itemName)
+        {
+            string normalized = itemName.Trim().ToLowerInvariant().Replace(" ", "_");
+            string dir = IOPath.Combine(AppContext.BaseDirectory, "Assets", "Item");
+            if (!System.IO.Directory.Exists(dir))
+                return null;
+
+            string direct = IOPath.Combine(dir, $"{normalized}.png");
+            if (System.IO.File.Exists(direct))
+                return direct;
+
+            string firstMatch = System.IO.Directory.GetFiles(dir, $"{normalized}*.png")
+                .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault() ?? "";
+            return firstMatch.Length > 0 ? firstMatch : null;
+        }
+
+        private int LoadSaveState()
+        {
+            string savePath = IOPath.Combine(AppContext.BaseDirectory, "save_state.txt");
+            if (!System.IO.File.Exists(savePath))
+                return 0;
+
+            try
+            {
+                var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var raw in System.IO.File.ReadAllLines(savePath))
+                {
+                    string line = raw.Trim();
+                    if (line.Length == 0 || line.StartsWith("#")) continue;
+                    int split = line.IndexOf('=');
+                    if (split <= 0) continue;
+                    values[line[..split].Trim()] = line[(split + 1)..].Trim();
+                }
+
+                playerData.Level = GetInt(values, "Level", playerData.Level);
+                playerData.Experience = GetInt(values, "Experience", playerData.Experience);
+                playerData.Gold = GetInt(values, "Gold", playerData.Gold);
+                playerData.Health = GetInt(values, "Health", playerData.Health);
+                playerData.MaxHealth = GetInt(values, "MaxHealth", playerData.MaxHealth);
+                highestUnlockedStage = Math.Max(1, GetInt(values, "HighestUnlockedStage", highestUnlockedStage));
+
+                playerData.Inventory.Clear();
+                int inventoryCount = Math.Max(0, GetInt(values, "InventoryCount", 0));
+                for (int i = 0; i < inventoryCount; i++)
+                {
+                    if (!values.TryGetValue($"Inventory{i}", out var line)) continue;
+                    var entry = ParseInventoryEntry(line);
+                    if (entry != null)
+                        playerData.Inventory.Add(entry);
+                }
+
+                int swordIndex = GetInt(values, "EquippedSwordIndex", -1);
+                int bowIndex = GetInt(values, "EquippedBowIndex", -1);
+                playerData.EquippedSword = (swordIndex >= 0 && swordIndex < playerData.Inventory.Count && playerData.Inventory[swordIndex].Item is WeaponItem sw && sw.WeaponCategory == WeaponCategory.Sword)
+                    ? sw : null;
+                playerData.EquippedBow = (bowIndex >= 0 && bowIndex < playerData.Inventory.Count && playerData.Inventory[bowIndex].Item is WeaponItem bw && bw.WeaponCategory == WeaponCategory.Bow)
+                    ? bw : null;
+
+                int stage = Math.Max(0, GetInt(values, "CurrentStage", 0));
+                return stage;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        private void SaveGameState()
+        {
+            string savePath = IOPath.Combine(AppContext.BaseDirectory, "save_state.txt");
+            var lines = new List<string>
+            {
+                "# TaskbarRPG Save State",
+                "# Editable for testing",
+                $"CurrentStage={currentStageNumber}",
+                $"HighestUnlockedStage={highestUnlockedStage}",
+                $"Level={playerData.Level}",
+                $"Experience={playerData.Experience}",
+                $"Gold={playerData.Gold}",
+                $"Health={playerData.Health}",
+                $"MaxHealth={playerData.MaxHealth}",
+                $"InventoryCount={playerData.Inventory.Count}",
+            };
+
+            for (int i = 0; i < playerData.Inventory.Count; i++)
+                lines.Add($"Inventory{i}={SerializeInventoryEntry(playerData.Inventory[i])}");
+
+            int equippedSwordIndex = playerData.Inventory.FindIndex(e => ReferenceEquals(e.Item, playerData.EquippedSword));
+            int equippedBowIndex = playerData.Inventory.FindIndex(e => ReferenceEquals(e.Item, playerData.EquippedBow));
+            lines.Add($"EquippedSwordIndex={equippedSwordIndex}");
+            lines.Add($"EquippedBowIndex={equippedBowIndex}");
+
+            System.IO.File.WriteAllLines(savePath, lines);
+        }
+
+        private void ResetProgress()
+        {
+            stageAreas.Clear();
+            previousArea = null;
+            highestUnlockedStage = 1;
+
+            playerData.Level = 1;
+            playerData.Experience = 0;
+            playerData.Gold = 10;
+            playerData.MaxHealth = 100;
+            playerData.Health = 100;
+            playerData.Inventory.Clear();
+            playerData.EquippedSword = null;
+            playerData.EquippedBow = null;
+            InitializePlayerData();
+
+            CloseAllPanels();
+            LoadArea(0, TransitionDirection.Right, animate: false);
+            SaveGameState();
+            ShowStatus("Progress reset.", 90);
+        }
+
+        private static int GetInt(Dictionary<string, string> values, string key, int fallback)
+        {
+            return values.TryGetValue(key, out var raw) && int.TryParse(raw, out int parsed)
+                ? parsed
+                : fallback;
+        }
+
+        private static string SerializeInventoryEntry(InventoryEntry entry)
+        {
+            string basePart = $"{entry.Item.Kind}|{entry.Item.Name.Replace("|", "")}|{entry.Quantity}|{entry.Item.BasePrice}";
+            return entry.Item switch
+            {
+                WeaponItem w => $"{basePart}|{w.WeaponCategory}|{w.Damage}|{w.CooldownFrames}",
+                ConsumableItem c => $"{basePart}|{c.HealAmount}",
+                AmmoItem a => $"{basePart}|{a.AmmoType.Replace("|", "")}",
+                _ => basePart
+            };
+        }
+
+        private static InventoryEntry? ParseInventoryEntry(string line)
+        {
+            string[] parts = line.Split('|');
+            if (parts.Length < 4) return null;
+
+            if (!Enum.TryParse<ItemKind>(parts[0], out var kind)) return null;
+            string name = parts[1];
+            if (!int.TryParse(parts[2], out int qty)) return null;
+            if (!int.TryParse(parts[3], out int basePrice)) return null;
+
+            ItemBase item = kind switch
+            {
+                ItemKind.Weapon when parts.Length >= 6 &&
+                    Enum.TryParse<WeaponCategory>(parts[4], out var category) &&
+                    int.TryParse(parts[5], out int dmg) =>
+                    new WeaponItem
+                    {
+                        Name = name,
+                        BasePrice = basePrice,
+                        WeaponCategory = category,
+                        Damage = dmg,
+                        CooldownFrames = parts.Length >= 7 && int.TryParse(parts[6], out int cd) ? cd : 10
+                    },
+                ItemKind.Consumable when parts.Length >= 5 &&
+                    int.TryParse(parts[4], out int heal) =>
+                    new ConsumableItem { Name = name, BasePrice = basePrice, HealAmount = heal },
+                ItemKind.Ammo when parts.Length >= 5 =>
+                    new AmmoItem { Name = name, BasePrice = basePrice, AmmoType = parts[4] },
+                _ => new AmmoItem { Name = name, BasePrice = basePrice, AmmoType = "Arrow" }
+            };
+
+            return new InventoryEntry { Item = item, Quantity = Math.Max(1, qty) };
         }
 
         private void InitializePlayerData()
@@ -909,6 +1488,7 @@ namespace TaskbarRPG
         {
             // Stop the game loop first so no further callbacks fire
             timer?.Stop();
+            SaveGameState();
 
             if (keyboardHook != IntPtr.Zero)
             {
@@ -991,7 +1571,10 @@ namespace TaskbarRPG
                     jumpHeld = isDown; break;
                 case VK_Z: meleeHeld = isDown; break;
                 case VK_X: fireHeld = isDown; break;
-                case VK_C: closeHeld = isDown; break;
+                case VK_C:
+                case VK_ESCAPE:
+                    closeHeld = isDown;
+                    break;
                 case VK_F: fastTravelHeld = isDown; break;
                 case VK_E: statsHeld = isDown; break;
                 case VK_M: mapHeld = isDown; break;
@@ -1018,6 +1601,7 @@ namespace TaskbarRPG
                 case VK_SPACE:
                 case VK_A:
                 case VK_C:
+                case VK_ESCAPE:
                 case VK_D:
                 case VK_E:
                 case VK_F:
@@ -1154,6 +1738,21 @@ namespace TaskbarRPG
             Canvas.SetTop(groundRect, Height - groundStripHeight);
         }
 
+        private void ApplyReadableTextStyle(TextBlock textBlock)
+        {
+            textBlock.Background = Brushes.Transparent;
+            textBlock.Padding = new Thickness(0);
+            textBlock.FontWeight = FontWeights.Bold;
+            textBlock.Effect = new DropShadowEffect
+            {
+                Color = Colors.Black,
+                ShadowDepth = 0,
+                BlurRadius = 3,
+                Opacity = 1.0
+            };
+            textBlock.FontSize += 3;
+        }
+
         private void CreateHud()
         {
             playerHealthBg = new Rectangle
@@ -1179,6 +1778,7 @@ namespace TaskbarRPG
                 Width = 60,
                 TextAlignment = TextAlignment.Center
             };
+            ApplyReadableTextStyle(playerHealthText);
 
             playerArrowText = new TextBlock
             {
@@ -1188,6 +1788,7 @@ namespace TaskbarRPG
                 Width = 60,
                 TextAlignment = TextAlignment.Center
             };
+            ApplyReadableTextStyle(playerArrowText);
 
             statusText = new TextBlock
             {
@@ -1197,6 +1798,7 @@ namespace TaskbarRPG
                 Width = 420,
                 TextAlignment = TextAlignment.Center,
             };
+            ApplyReadableTextStyle(statusText);
 
             GameCanvas.Children.Add(playerHealthBg);
             GameCanvas.Children.Add(playerHealthFill);
@@ -1221,6 +1823,7 @@ namespace TaskbarRPG
                 TextWrapping = TextWrapping.NoWrap,
                 Margin = new Thickness(5, 3, 5, 3),
             };
+            ApplyReadableTextStyle(panelText);
 
             panelBorder = new Border
             {
@@ -1247,7 +1850,7 @@ namespace TaskbarRPG
             double maxH = Height - 6;
             double maxW = panelBorder.Width - 12;
 
-            for (double size = 10.0; size >= 5.5; size -= 0.5)
+            for (double size = 12.0; size >= 7.5; size -= 0.5)
             {
                 panelText.FontSize = size;
                 panelText.Measure(new Size(maxW, double.PositiveInfinity));
@@ -1266,6 +1869,7 @@ namespace TaskbarRPG
                 Width = 180,
                 TextAlignment = TextAlignment.Left
             };
+            ApplyReadableTextStyle(leftExitText);
 
             rightExitText = new TextBlock
             {
@@ -1275,6 +1879,7 @@ namespace TaskbarRPG
                 Width = 180,
                 TextAlignment = TextAlignment.Right
             };
+            ApplyReadableTextStyle(rightExitText);
 
             GameCanvas.Children.Add(leftExitText);
             GameCanvas.Children.Add(rightExitText);
@@ -1285,28 +1890,29 @@ namespace TaskbarRPG
 
         private void UpdateExitTexts()
         {
-            if (currentArea.LeftExit.HasValue)
-            {
-                var leftArea = AreaDefinitions.Get(currentArea.LeftExit.Value);
-                leftExitText.Text = $"< {leftArea.Name} (Lv {leftArea.LevelRequirement})";
-                leftExitText.Foreground = playerData.Level >= leftArea.LevelRequirement
-                    ? Brushes.White : Brushes.OrangeRed;
-            }
-            else
+            if (currentStageNumber == 0)
             {
                 leftExitText.Text = "";
-            }
-
-            if (currentArea.RightExit.HasValue)
-            {
-                var rightArea = AreaDefinitions.Get(currentArea.RightExit.Value);
-                rightExitText.Text = $"{rightArea.Name} (Lv {rightArea.LevelRequirement}) >";
-                rightExitText.Foreground = playerData.Level >= rightArea.LevelRequirement
-                    ? Brushes.White : Brushes.OrangeRed;
+                rightExitText.Text = $"Stage {highestUnlockedStage} >";
+                rightExitText.Foreground = Brushes.White;
             }
             else
             {
-                rightExitText.Text = "";
+                leftExitText.Text = "< Town";
+                leftExitText.Foreground = Brushes.White;
+
+                if (activeEnemies.Count > 0)
+                {
+                    rightExitText.Text = currentArea.IsBossArea ? "Boss alive >" : "Clear area >";
+                    rightExitText.Foreground = Brushes.OrangeRed;
+                }
+                else
+                {
+                    rightExitText.Text = currentArea.IsBossArea
+                        ? "Town >"
+                        : $"Stage {currentStageNumber + 1} >";
+                    rightExitText.Foreground = Brushes.White;
+                }
             }
         }
 
@@ -1326,16 +1932,29 @@ namespace TaskbarRPG
             {
                 Width = 20,
                 Height = 12,
+                Fill = gameConfig.Debug ? new SolidColorBrush(Color.FromArgb(70, 255, 0, 0)) : Brushes.Transparent,
+                Visibility = gameConfig.Debug ? Visibility.Visible : Visibility.Hidden,
+                Stroke = gameConfig.Debug ? Brushes.Red : null,
+                StrokeThickness = gameConfig.Debug ? 1 : 0,
+            };
+
+            playerHitboxDebug = new Rectangle
+            {
+                Width = playerHitboxWidth,
+                Height = playerHitboxHeight,
                 Fill = Brushes.Transparent,
-                Visibility = Visibility.Hidden,
-                Stroke = null,
+                Stroke = Brushes.DeepSkyBlue,
+                StrokeThickness = 1,
+                Visibility = gameConfig.Debug ? Visibility.Visible : Visibility.Hidden,
             };
 
             GameCanvas.Children.Add(player);
+            GameCanvas.Children.Add(playerHitboxDebug);
             GameCanvas.Children.Add(attackHitbox);
 
             Panel.SetZIndex(player, 20);
-            Panel.SetZIndex(attackHitbox, 21);
+            Panel.SetZIndex(playerHitboxDebug, 21);
+            Panel.SetZIndex(attackHitbox, 22);
 
             groundY = Height - groundStripHeight - playerHeight;
             playerY = groundY;
@@ -1387,7 +2006,7 @@ namespace TaskbarRPG
             {
                 velocityX = 0;
                 if (!isAttacking)
-                    attackHitbox.Visibility = Visibility.Hidden;
+                    attackHitbox.Visibility = gameConfig.Debug ? Visibility.Visible : Visibility.Hidden;
             }
 
             currentInteractableZone = FindInteractableZoneInRange();
@@ -1395,6 +2014,10 @@ namespace TaskbarRPG
 
             if (playerDamageCooldownFrames > 0)
                 playerDamageCooldownFrames--;
+            if (meleeCooldownFrames > 0)
+                meleeCooldownFrames--;
+            if (bowCooldownFrames > 0)
+                bowCooldownFrames--;
 
             if (statusFramesRemaining > 0)
                 statusFramesRemaining--;
@@ -1462,7 +2085,16 @@ namespace TaskbarRPG
 
             if (closePressedThisFrame)
             {
-                CloseAllPanels();
+                if (panelMode == PanelMode.SystemMenu || panelMode == PanelMode.ResetConfirm)
+                {
+                    CloseAllPanels();
+                }
+                else
+                {
+                    panelMode = PanelMode.SystemMenu;
+                    panelBorder.Visibility = Visibility.Visible;
+                    RenderCurrentPanel();
+                }
                 CacheLastFrameInput();
                 return;
             }
@@ -1478,6 +2110,13 @@ namespace TaskbarRPG
             if (panelMode == PanelMode.FastTravel)
             {
                 HandleFastTravelSelection();
+                CacheLastFrameInput();
+                return;
+            }
+
+            if (panelMode == PanelMode.SystemMenu || panelMode == PanelMode.ResetConfirm)
+            {
+                HandleSystemMenuSelection();
                 CacheLastFrameInput();
                 return;
             }
@@ -1528,12 +2167,17 @@ namespace TaskbarRPG
                 var interactable = FindInteractableZoneInRange();
                 if (interactable != null)
                     InteractWithZone(interactable);
-                else if (!isAttacking)
+                else if (!isAttacking && meleeCooldownFrames <= 0)
                     StartMeleeAttack();
             }
 
             if (firePressedThisFrame && panelMode == PanelMode.None)
-                FireBow();
+            {
+                if (bowCooldownFrames <= 0)
+                    FireBow();
+                else
+                    ShowStatus($"Bow cooling down ({bowCooldownFrames})", 25);
+            }
 
             CacheLastFrameInput();
         }
@@ -1583,6 +2227,8 @@ namespace TaskbarRPG
         {
             switch (panelMode)
             {
+                case PanelMode.SystemMenu: RenderSystemMenuPanel(); break;
+                case PanelMode.ResetConfirm: RenderResetConfirmPanel(); break;
                 case PanelMode.FastTravel: RenderFastTravelPanel(); break;
                 case PanelMode.Stats: RenderStatsPanel(); break;
                 case PanelMode.Map: RenderMapPanel(); break;
@@ -1597,28 +2243,41 @@ namespace TaskbarRPG
         // -----------------------------------------------------------------------
         // Panel renderers
         // -----------------------------------------------------------------------
+        private void RenderSystemMenuPanel()
+        {
+            panelText.Text =
+                "SYSTEM MENU\n" +
+                "\n" +
+                "1. Save\n" +
+                "2. Save + Exit\n" +
+                "3. Reset Progress\n" +
+                "\n" +
+                "ESC/C = close";
+            FitPanelText();
+        }
+
+        private void RenderResetConfirmPanel()
+        {
+            panelText.Text =
+                "RESET PROGRESS?\n" +
+                "\n" +
+                "1. No (back)\n" +
+                "2. Yes (reset)\n" +
+                "\n" +
+                "ESC/C = cancel";
+            FitPanelText();
+        }
+
         private void RenderFastTravelPanel()
         {
-            var lines = new List<string>
-            {
-                "FAST TRAVEL",
-                "",
-                "Choose destination with number keys:",
-                ""
-            };
-
-            for (int i = 0; i < AreaDefinitions.Ordered.Count && i < 9; i++)
-            {
-                var area = AreaDefinitions.Ordered[i];
-                string marker = area.Type == currentArea.Type ? "  <== CURRENT" : "";
-                string lockText = playerData.Level >= area.LevelRequirement
-                    ? "" : $" [LOCKED Lv {area.LevelRequirement}]";
-                lines.Add($"{i + 1}. {area.Name}{lockText}{marker}");
-            }
-
-            lines.Add("");
-            lines.Add("C = close");
-            panelText.Text = string.Join(Environment.NewLine, lines);
+            panelText.Text =
+                "FAST TRAVEL\n" +
+                "\n" +
+                "1. Town\n" +
+                $"2. Stage {highestUnlockedStage} frontier\n" +
+                "\n" +
+                $"Current: {(currentStageNumber == 0 ? "Town" : $"Stage {currentStageNumber}")}\n" +
+                "C = close";
             FitPanelText();
         }
 
@@ -1642,38 +2301,12 @@ namespace TaskbarRPG
 
         private void RenderMapPanel()
         {
-            var ordered = AreaDefinitions.Ordered;
-            int currentIndex = ordered.FindIndex(a => a.Type == currentArea.Type);
-            string[] names = ordered.Select(a => $"{a.Name}(Lv{a.LevelRequirement})").ToArray();
-            string mapLine = string.Join(" -- ", names);
-
-            // Build character-position lookup for marker arrows
-            var centers = new List<int>();
-            int cursor = 0;
-            for (int i = 0; i < names.Length; i++)
-            {
-                centers.Add(cursor + names[i].Length / 2);
-                cursor += names[i].Length;
-                if (i < names.Length - 1) cursor += 4; // " -- "
-            }
-
-            char[] markerLine = new string(' ', mapLine.Length).ToCharArray();
-            char[] pulseLine = new string(' ', mapLine.Length).ToCharArray();
-
-            if (currentIndex >= 0 && currentIndex < centers.Count)
-            {
-                int pos = centers[currentIndex];
-                bool pulseOn = Math.Sin(mapPulseTime) > 0;
-
-                if (pos >= 0 && pos < markerLine.Length) markerLine[pos] = '^';
-                if (pos >= 0 && pos < pulseLine.Length) pulseLine[pos] = pulseOn ? '*' : 'o';
-            }
-
             panelText.Text =
                 "WORLD MAP\n" +
-                new string(markerLine) + "\n" +
-                mapLine + "\n" +
-                new string(pulseLine) + "\n" +
+                "Town -> Stage 1 -> Stage 2 -> Stage 3 -> Stage 4 -> Boss -> Town\n" +
+                "\n" +
+                $"Current Stage: {(currentStageNumber == 0 ? "Town" : currentStageNumber)}\n" +
+                $"Unlocked Frontier: Stage {highestUnlockedStage}\n" +
                 $"Area: {currentArea.Name}  C=close";
             FitPanelText();
         }
@@ -1814,30 +2447,64 @@ namespace TaskbarRPG
             return -1;
         }
 
+        private void HandleSystemMenuSelection()
+        {
+            int index = GetPressedNumberIndex();
+            if (index < 0) return;
+            int number = index + 1;
+
+            if (panelMode == PanelMode.SystemMenu)
+            {
+                if (number == 1)
+                {
+                    SaveGameState();
+                    ShowStatus("Game saved.", 60);
+                    CloseAllPanels();
+                }
+                else if (number == 2)
+                {
+                    SaveGameState();
+                    Close();
+                }
+                else if (number == 3)
+                {
+                    panelMode = PanelMode.ResetConfirm;
+                    RenderCurrentPanel();
+                }
+            }
+            else if (panelMode == PanelMode.ResetConfirm)
+            {
+                if (number == 1)
+                {
+                    panelMode = PanelMode.SystemMenu;
+                    RenderCurrentPanel();
+                }
+                else if (number == 2)
+                {
+                    ResetProgress();
+                }
+            }
+        }
+
         private void HandleFastTravelSelection()
         {
             int index = GetPressedNumberIndex();
-            if (index < 0 || index >= AreaDefinitions.Ordered.Count)
+            if (index < 0)
                 return;
+            int number = index + 1;
 
-            var target = AreaDefinitions.Ordered[index];
-
-            if (playerData.Level < target.LevelRequirement)
+            if (number == 1)
             {
-                ShowStatus($"Need Lv {target.LevelRequirement} for {target.Name}", 80);
-                return;
+                if (currentStageNumber == 0) return;
+                CloseAllPanels();
+                LoadArea(0, TransitionDirection.Left, animate: true);
             }
-
-            if (target.Type == currentArea.Type)
-                return;
-
-            int currentIndex = AreaDefinitions.Ordered.FindIndex(a => a.Type == currentArea.Type);
-            TransitionDirection dir = index >= currentIndex
-                ? TransitionDirection.Right
-                : TransitionDirection.Left;
-
-            CloseAllPanels();
-            LoadArea(target.Type, dir, animate: true);
+            else if (number == 2)
+            {
+                if (currentStageNumber == highestUnlockedStage) return;
+                CloseAllPanels();
+                LoadArea(highestUnlockedStage, TransitionDirection.Right, animate: true);
+            }
         }
 
         private void HandleStatsSelection()
@@ -1930,15 +2597,15 @@ namespace TaskbarRPG
         // -----------------------------------------------------------------------
         // Area management
         // -----------------------------------------------------------------------
-        private void LoadArea(AreaType type, TransitionDirection entryDir, bool animate = true)
+        private void LoadArea(int stageNumber, TransitionDirection entryDir, bool animate = true)
         {
             if (animate)
             {
-                transition.Start(type, entryDir);
+                transition.Start(stageNumber, entryDir);
             }
             else
             {
-                ApplyArea(type);
+                ApplyArea(stageNumber);
                 playerX = entryDir == TransitionDirection.Right ? 10 : Width - playerWidth - 10;
                 velocityX = 0;
                 DrawPlayer();
@@ -1946,18 +2613,34 @@ namespace TaskbarRPG
             }
         }
 
-        private void OnTransitionMidpoint(AreaType type, TransitionDirection dir)
+        private void OnTransitionMidpoint(int stageNumber, TransitionDirection dir)
         {
-            ApplyArea(type);
+            ApplyArea(stageNumber);
             playerX = dir == TransitionDirection.Right ? 10 : Width - playerWidth - 10;
             velocityX = 0;
             CloseAllPanels();
         }
 
-        private void ApplyArea(AreaType type)
+        private void ApplyArea(int stageNumber)
         {
             previousArea = currentArea;
-            currentArea = AreaDefinitions.Get(type);
+            currentStageNumber = stageNumber;
+
+            if (stageNumber <= 0)
+            {
+                currentStageNumber = 0;
+                currentArea = AreaDefinitions.GetTown();
+            }
+            else
+            {
+                if (!stageAreas.TryGetValue(stageNumber, out var stageArea))
+                {
+                    stageArea = AreaDefinitions.CreateStageArea(stageNumber, rng, areaTemplates, enemyTemplates);
+                    stageAreas[stageNumber] = stageArea;
+                }
+
+                currentArea = stageArea;
+            }
 
             bool enteringTown = currentArea.Type == AreaType.Town &&
                                 (previousArea == null || previousArea.Type != AreaType.Town);
@@ -1971,11 +2654,12 @@ namespace TaskbarRPG
             SpawnAreaZones(currentArea);
             SpawnEnemies(currentArea);
             UpdateExitTexts();
+            SaveGameState();
         }
 
         private void RefreshTownShops()
         {
-            foreach (var zone in AreaDefinitions.Get(AreaType.Town).Zones)
+            foreach (var zone in currentArea.Zones)
             {
                 if (zone.Content is not ShopZoneContent shop)
                     continue;
@@ -1985,19 +2669,13 @@ namespace TaskbarRPG
                 switch (shop.ShopType)
                 {
                     case ShopType.Sword:
-                        for (int i = 0; i < 3; i++)
-                        {
-                            var sword = ItemFactory.CreateRandomSword(rng);
+                        foreach (var sword in GenerateShopWeapons(WeaponCategory.Sword, 3))
                             shop.Stock.Add(new ShopListing { Item = sword, Quantity = 1, Price = sword.BasePrice });
-                        }
                         break;
 
                     case ShopType.Bow:
-                        for (int i = 0; i < 2; i++)
-                        {
-                            var bow = ItemFactory.CreateRandomBow(rng);
+                        foreach (var bow in GenerateShopWeapons(WeaponCategory.Bow, 2))
                             shop.Stock.Add(new ShopListing { Item = bow, Quantity = 1, Price = bow.BasePrice });
-                        }
                         var arrow = ItemFactory.CreateArrowItem();
                         shop.Stock.Add(new ShopListing { Item = arrow, Quantity = 5, Price = 5 });
                         break;
@@ -2011,33 +2689,77 @@ namespace TaskbarRPG
             }
         }
 
+        private List<WeaponItem> GenerateShopWeapons(WeaponCategory category, int count)
+        {
+            int tier = Math.Max(0, (highestUnlockedStage - 1) / 5);
+            var pool = itemTemplates
+                .Where(i => i.Category == category)
+                .OrderBy(i => i.Damage)
+                .ToList();
+
+            if (pool.Count == 0)
+            {
+                return Enumerable.Range(0, count)
+                    .Select(_ => category == WeaponCategory.Sword
+                        ? ItemFactory.CreateRandomSword(rng)
+                        : ItemFactory.CreateRandomBow(rng))
+                    .ToList();
+            }
+
+            int maxIndex = Math.Min(pool.Count - 1, tier + 1);
+            var unlocked = pool.Take(maxIndex + 1).ToList();
+            var results = new List<WeaponItem>();
+
+            for (int i = 0; i < count; i++)
+            {
+                var template = unlocked[rng.Next(unlocked.Count)];
+                int tierDamageBonus = (tier * 2) + (tier >= 3 ? 1 : 0);
+                int dmg = template.Damage + tierDamageBonus + rng.Next(0, 2);
+                int cooldown = Math.Max(1, template.CooldownFrames - (tier / 2));
+                int price = (dmg * 14) + (tier * 18) + Math.Max(1, 24 - cooldown);
+
+                results.Add(new WeaponItem
+                {
+                    Name = template.Name,
+                    WeaponCategory = category,
+                    Damage = dmg,
+                    CooldownFrames = cooldown,
+                    BasePrice = price,
+                    SpritePath = template.SpritePath
+                });
+            }
+
+            return results;
+        }
+
         private void CheckAreaTransition()
         {
-            if (playerX > Width - playerWidth && currentArea.RightExit.HasValue)
+            if (playerX > Width - playerWidth)
             {
-                var target = AreaDefinitions.Get(currentArea.RightExit.Value);
-                if (playerData.Level < target.LevelRequirement)
+                if (currentStageNumber == 0)
                 {
-                    playerX = Width - playerWidth;
-                    ShowStatus($"Need Lv {target.LevelRequirement} for {target.Name}", 80);
+                    LoadArea(highestUnlockedStage, TransitionDirection.Right);
                 }
                 else
                 {
-                    LoadArea(currentArea.RightExit.Value, TransitionDirection.Right);
+                    if (activeEnemies.Count > 0)
+                    {
+                        playerX = Width - playerWidth;
+                        ShowStatus("Defeat all monsters to advance.", 80);
+                    }
+                    else if (currentArea.IsBossArea)
+                    {
+                        LoadArea(0, TransitionDirection.Right);
+                    }
+                    else
+                    {
+                        LoadArea(currentStageNumber + 1, TransitionDirection.Right);
+                    }
                 }
             }
-            else if (playerX < 0 && currentArea.LeftExit.HasValue)
+            else if (playerX < 0 && currentStageNumber > 0)
             {
-                var target = AreaDefinitions.Get(currentArea.LeftExit.Value);
-                if (playerData.Level < target.LevelRequirement)
-                {
-                    playerX = 0;
-                    ShowStatus($"Need Lv {target.LevelRequirement} for {target.Name}", 80);
-                }
-                else
-                {
-                    LoadArea(currentArea.LeftExit.Value, TransitionDirection.Left);
-                }
+                LoadArea(0, TransitionDirection.Left);
             }
         }
 
@@ -2089,6 +2811,7 @@ namespace TaskbarRPG
                     Width = 110,
                     TextAlignment = TextAlignment.Center,
                 };
+                ApplyReadableTextStyle(buildingLabel);
 
                 var npcIdle1 = GetShopNpcIdle1Sprite(zone.Content);
                 var npcIdle2 = GetShopNpcIdle2Sprite(zone.Content);
@@ -2112,6 +2835,7 @@ namespace TaskbarRPG
                     Width = 90,
                     TextAlignment = TextAlignment.Center,
                 };
+                ApplyReadableTextStyle(npcLabel);
 
                 GameCanvas.Children.Add(building);
                 GameCanvas.Children.Add(buildingLabel);
@@ -2230,16 +2954,38 @@ namespace TaskbarRPG
 
             foreach (var def in area.EnemySpawns)
             {
-                var body = new Rectangle
+                var walkFrames = LoadEnemyFrames(def.Name, "walk");
+                var attackFrames = LoadEnemyFrames(def.Name, "attack");
+
+                FrameworkElement body;
+                Image? bodySprite = null;
+
+                if (walkFrames.Count > 0 || attackFrames.Count > 0)
                 {
-                    Width = def.Width,
-                    Height = def.Height,
-                    Fill = new SolidColorBrush(def.Color),
-                    Stroke = Brushes.Black,
-                    StrokeThickness = 1,
-                    RadiusX = 4,
-                    RadiusY = 4,
-                };
+                    var firstFrame = walkFrames.FirstOrDefault() ?? attackFrames.First();
+                    bodySprite = new Image
+                    {
+                        Width = def.Width,
+                        Height = def.Height,
+                        Stretch = Stretch.Fill,
+                        Source = firstFrame
+                    };
+                    RenderOptions.SetBitmapScalingMode(bodySprite, BitmapScalingMode.NearestNeighbor);
+                    body = bodySprite;
+                }
+                else
+                {
+                    body = new Rectangle
+                    {
+                        Width = def.Width,
+                        Height = def.Height,
+                        Fill = new SolidColorBrush(def.Color),
+                        Stroke = gameConfig.Debug ? Brushes.Red : null,
+                        StrokeThickness = gameConfig.Debug ? 1 : 0,
+                        RadiusX = 4,
+                        RadiusY = 4,
+                    };
+                }
 
                 var label = new TextBlock
                 {
@@ -2250,6 +2996,7 @@ namespace TaskbarRPG
                     Width = 70,
                     TextAlignment = TextAlignment.Center
                 };
+                ApplyReadableTextStyle(label);
 
                 var healthBg = new Rectangle
                 {
@@ -2266,15 +3013,26 @@ namespace TaskbarRPG
                     Fill = Brushes.LimeGreen
                 };
 
+                var attackHitbox = new Rectangle
+                {
+                    Width = def.Width * 2,
+                    Height = Math.Max(8, def.Height * 0.65),
+                    Fill = gameConfig.Debug ? new SolidColorBrush(Color.FromArgb(80, 255, 70, 70)) : Brushes.Transparent,
+                    Stroke = gameConfig.Debug ? Brushes.OrangeRed : null,
+                    StrokeThickness = gameConfig.Debug ? 1 : 0
+                };
+
                 GameCanvas.Children.Add(body);
                 GameCanvas.Children.Add(label);
                 GameCanvas.Children.Add(healthBg);
                 GameCanvas.Children.Add(healthFill);
+                GameCanvas.Children.Add(attackHitbox);
 
                 Panel.SetZIndex(body, 12);
                 Panel.SetZIndex(label, 13);
                 Panel.SetZIndex(healthBg, 14);
                 Panel.SetZIndex(healthFill, 15);
+                Panel.SetZIndex(attackHitbox, 11);
 
                 double floorLine = groundY + playerHeight;
 
@@ -2282,6 +3040,10 @@ namespace TaskbarRPG
                 {
                     Definition = def,
                     Body = body,
+                    BodySprite = bodySprite,
+                    WalkFrames = walkFrames,
+                    AttackFrames = attackFrames,
+                    AttackHitbox = attackHitbox,
                     Label = label,
                     HealthBg = healthBg,
                     HealthFill = healthFill,
@@ -2305,6 +3067,7 @@ namespace TaskbarRPG
                 GameCanvas.Children.Remove(enemy.Label);
                 GameCanvas.Children.Remove(enemy.HealthBg);
                 GameCanvas.Children.Remove(enemy.HealthFill);
+                GameCanvas.Children.Remove(enemy.AttackHitbox);
             }
             activeEnemies.Clear();
         }
@@ -2323,6 +3086,14 @@ namespace TaskbarRPG
                 {
                     // Chase the player
                     enemy.Direction = playerCenterX >= enemyCenterX ? 1 : -1;
+
+                    if (!enemy.IsAttacking && enemy.AttackCooldownFrames <= 0 && rng.NextDouble() < 0.02)
+                    {
+                        enemy.IsAttacking = true;
+                        enemy.AttackFramesRemaining = Math.Max(10, enemy.AttackFrames.Count * 8);
+                        enemy.AttackDamageApplied = false;
+                        enemy.AttackCooldownFrames = 38;
+                    }
                 }
                 else
                 {
@@ -2331,9 +3102,34 @@ namespace TaskbarRPG
                     else if (enemy.X >= enemy.RightBound) enemy.Direction = -1;
                 }
 
-                enemy.X += enemy.Speed * enemy.Direction;
-                enemy.X = Math.Max(0, Math.Min(Width - enemy.Body.Width, enemy.X));
+                if (!enemy.IsAttacking)
+                    enemy.X += enemy.Speed * enemy.Direction;
+
+                enemy.X = Math.Max(0, Math.Min(Width - enemy.Definition.Width, enemy.X));
                 enemy.Y = groundY + playerHeight - enemy.Body.Height;
+
+                if (enemy.AttackCooldownFrames > 0)
+                    enemy.AttackCooldownFrames--;
+
+                if (enemy.IsAttacking)
+                {
+                    enemy.AttackFramesRemaining--;
+                    if (enemy.AttackFramesRemaining <= 0)
+                        enemy.IsAttacking = false;
+                }
+
+                if (enemy.BodySprite != null)
+                {
+                    var frames = (enemy.IsAttacking && enemy.AttackFrames.Count > 0)
+                        ? enemy.AttackFrames
+                        : enemy.WalkFrames;
+
+                    if (frames.Count > 0)
+                    {
+                        int frameIndex = (animationFrameCounter / 10) % frames.Count;
+                        enemy.BodySprite.Source = frames[frameIndex];
+                    }
+                }
             }
         }
 
@@ -2343,8 +3139,25 @@ namespace TaskbarRPG
             {
                 if (!enemy.IsAlive) continue;
 
-                Canvas.SetLeft(enemy.Body, enemy.X);
+                double drawX = enemy.X;
+                double spriteWidth = enemy.Definition.Width;
+                if (enemy.IsAttacking && enemy.AttackFrames.Count > 0)
+                {
+                    spriteWidth = enemy.Definition.Width * 2;
+                    if (enemy.Direction < 0)
+                        drawX = enemy.X - (spriteWidth - enemy.Definition.Width);
+                }
+
+                enemy.Body.Width = spriteWidth;
+                Canvas.SetLeft(enemy.Body, drawX);
                 Canvas.SetTop(enemy.Body, enemy.Y);
+
+                if (enemy.BodySprite != null)
+                {
+                    enemy.BodySprite.RenderTransformOrigin = new Point(0.5, 0.5);
+                    enemy.BodySprite.RenderTransform = new ScaleTransform(enemy.Direction >= 0 ? 1 : -1, 1);
+                }
+
                 Canvas.SetLeft(enemy.Label, enemy.X - 26);
                 Canvas.SetTop(enemy.Label, enemy.Y - 14);
 
@@ -2356,6 +3169,13 @@ namespace TaskbarRPG
                 Canvas.SetTop(enemy.HealthBg, enemy.Y - 22);
                 Canvas.SetLeft(enemy.HealthFill, enemy.X - 5);
                 Canvas.SetTop(enemy.HealthFill, enemy.Y - 22);
+
+                double hitboxX = enemy.Direction >= 0
+                    ? enemy.X + enemy.Definition.Width - 2
+                    : enemy.X - enemy.AttackHitbox.Width + 2;
+                double hitboxY = enemy.Y + 6;
+                Canvas.SetLeft(enemy.AttackHitbox, hitboxX);
+                Canvas.SetTop(enemy.AttackHitbox, hitboxY);
             }
         }
 
@@ -2363,19 +3183,29 @@ namespace TaskbarRPG
         {
             if (playerDamageCooldownFrames > 0) return;
 
-            Rect playerRect = new Rect(playerX, playerY, playerWidth, playerHeight);
+            Rect playerRect = GetPlayerCollisionRect();
 
             foreach (var enemy in activeEnemies)
             {
                 if (!enemy.IsAlive) continue;
 
-                Rect enemyRect = new Rect(enemy.X, enemy.Y, enemy.Body.Width, enemy.Body.Height);
-                if (!playerRect.IntersectsWith(enemyRect)) continue;
+                if (enemy.IsAttacking && !enemy.AttackDamageApplied)
+                {
+                    Rect attackRect = new Rect(
+                        Canvas.GetLeft(enemy.AttackHitbox),
+                        Canvas.GetTop(enemy.AttackHitbox),
+                        enemy.AttackHitbox.Width,
+                        enemy.AttackHitbox.Height);
 
-                playerData.Health = Math.Max(0, playerData.Health - enemy.Definition.ContactDamage);
-                playerDamageCooldownFrames = PlayerDamageCooldownMax;
-                ShowStatus($"Hit by {enemy.Definition.Name}!", 35);
-                break;
+                    if (playerRect.IntersectsWith(attackRect))
+                    {
+                        playerData.Health = Math.Max(0, playerData.Health - enemy.Definition.ContactDamage);
+                        playerDamageCooldownFrames = PlayerDamageCooldownMax;
+                        enemy.AttackDamageApplied = true;
+                        ShowStatus($"{enemy.Definition.Name} attacks!", 35);
+                        break;
+                    }
+                }
             }
         }
 
@@ -2392,16 +3222,30 @@ namespace TaskbarRPG
             enemy.IsAlive = false;
 
             int goldDrop = rng.Next(enemy.Definition.GoldMin, enemy.Definition.GoldMax + 1);
+            int scaledXp = ScaleXpForPlayerLevel(enemy.Definition.XpReward, enemy.Definition.PowerLevel);
             playerData.Gold += goldDrop;
-            GainExperience(enemy.Definition.XpReward);
+            GainExperience(scaledXp);
 
             GameCanvas.Children.Remove(enemy.Body);
             GameCanvas.Children.Remove(enemy.Label);
             GameCanvas.Children.Remove(enemy.HealthBg);
             GameCanvas.Children.Remove(enemy.HealthFill);
+            GameCanvas.Children.Remove(enemy.AttackHitbox);
             activeEnemies.Remove(enemy);
 
-            ShowStatus($"+{enemy.Definition.XpReward} XP, +{goldDrop}g", 60);
+            ShowStatus($"+{scaledXp} XP, +{goldDrop}g", 60);
+
+            if (currentStageNumber > 0 && activeEnemies.Count == 0)
+            {
+                highestUnlockedStage = Math.Max(highestUnlockedStage, currentStageNumber + 1);
+                string clearMessage = currentArea.IsBossArea
+                    ? "Boss defeated! Return right to Town."
+                    : $"Area clear! Stage {currentStageNumber + 1} unlocked.";
+                ShowStatus(clearMessage, 100);
+
+                if (currentArea.IsBossArea)
+                    SaveGameState();
+            }
         }
 
         private void GainExperience(int amount)
@@ -2416,6 +3260,17 @@ namespace TaskbarRPG
             }
         }
 
+        private int ScaleXpForPlayerLevel(int baseXp, int enemyLevel)
+        {
+            int diff = enemyLevel - playerData.Level;
+            if (diff <= -6) return 1;
+            if (diff <= -3) return Math.Max(1, (int)Math.Round(baseXp * 0.4));
+            if (diff < 0) return Math.Max(1, (int)Math.Round(baseXp * 0.7));
+            if (diff == 0) return baseXp;
+            if (diff <= 3) return (int)Math.Round(baseXp * 1.15);
+            return (int)Math.Round(baseXp * 1.35);
+        }
+
         // -----------------------------------------------------------------------
         // Combat — melee
         // -----------------------------------------------------------------------
@@ -2424,6 +3279,7 @@ namespace TaskbarRPG
             isAttacking = true;
             attackFramesRemaining = attackDurationFrames;
             attackHitbox.Visibility = Visibility.Visible;
+            meleeCooldownFrames = Math.Max(1, playerData.EquippedSword?.CooldownFrames ?? attackDurationFrames);
             ApplyMeleeDamageNow();
         }
 
@@ -2454,7 +3310,7 @@ namespace TaskbarRPG
         {
             if (!isAttacking)
             {
-                attackHitbox.Visibility = Visibility.Hidden;
+                attackHitbox.Visibility = gameConfig.Debug ? Visibility.Visible : Visibility.Hidden;
                 return;
             }
 
@@ -2462,7 +3318,7 @@ namespace TaskbarRPG
             if (attackFramesRemaining <= 0)
             {
                 isAttacking = false;
-                attackHitbox.Visibility = Visibility.Hidden;
+                attackHitbox.Visibility = gameConfig.Debug ? Visibility.Visible : Visibility.Hidden;
             }
         }
 
@@ -2485,20 +3341,37 @@ namespace TaskbarRPG
 
             int damage = playerData.BaseDamage + playerData.EquippedBow.Damage;
 
-            var body = new Rectangle
+            FrameworkElement body;
+            if (playerArrowSprite != null)
             {
-                Width = 12,
-                Height = 3,
-                Fill = Brushes.SandyBrown,
-                RadiusX = 1,
-                RadiusY = 1
-            };
+                var arrowImage = new Image
+                {
+                    Width = 16,
+                    Height = 16,
+                    Stretch = Stretch.Fill,
+                    Source = playerArrowSprite
+                };
+                RenderOptions.SetBitmapScalingMode(arrowImage, BitmapScalingMode.NearestNeighbor);
+                body = arrowImage;
+            }
+            else
+            {
+                body = new Rectangle
+                {
+                    Width = 12,
+                    Height = 3,
+                    Fill = Brushes.SandyBrown,
+                    RadiusX = 1,
+                    RadiusY = 1
+                };
+            }
 
             GameCanvas.Children.Add(body);
             Panel.SetZIndex(body, 22);
 
-            double startX = facingRight ? playerX + playerWidth + 2 : playerX - 12;
-            double startY = playerY + 12;
+            double startX = facingRight ? playerX + playerWidth + 2 : playerX - body.Width;
+            double startY = playerY + (playerHeight / 2) - (body.Height / 2);
+            double maxDistance = arrowSpeed * arrowDurationFrames;
 
             activeProjectiles.Add(new ArrowProjectile
             {
@@ -2506,12 +3379,14 @@ namespace TaskbarRPG
                 X = startX,
                 Y = startY,
                 Direction = facingRight ? 1 : -1,
-                Speed = 8.5,
-                MaxDistance = 280,
+                Speed = arrowSpeed,
+                MaxDistance = maxDistance,
                 DistanceTraveled = 0,
                 Damage = damage,
                 IsAlive = true
             });
+
+            bowCooldownFrames = Math.Max(1, playerData.EquippedBow?.CooldownFrames ?? 12);
         }
 
         private void UpdateProjectiles()
@@ -2530,7 +3405,7 @@ namespace TaskbarRPG
                     continue;
                 }
 
-                Rect arrowRect = new Rect(arrow.X, arrow.Y, arrow.Body.Width, arrow.Body.Height);
+                Rect arrowRect = GetArrowHitboxRect(arrow);
 
                 foreach (var enemy in activeEnemies.ToList())
                 {
@@ -2553,7 +3428,22 @@ namespace TaskbarRPG
                 if (!arrow.IsAlive) continue;
                 Canvas.SetLeft(arrow.Body, arrow.X);
                 Canvas.SetTop(arrow.Body, arrow.Y);
+
+                if (arrow.Body is Image image)
+                {
+                    image.RenderTransformOrigin = new Point(0.5, 0.5);
+                    image.RenderTransform = new ScaleTransform(arrow.Direction >= 0 ? 1 : -1, 1);
+                }
             }
+        }
+
+        private Rect GetArrowHitboxRect(ArrowProjectile arrow)
+        {
+            double hitboxW = Math.Max(2, arrowHitboxWidth);
+            double hitboxH = Math.Max(2, arrowHitboxHeight);
+            double hitboxX = arrow.X + ((arrow.Body.Width - hitboxW) / 2.0);
+            double hitboxY = arrow.Y + ((arrow.Body.Height - hitboxH) / 2.0);
+            return new Rect(hitboxX, hitboxY, hitboxW, hitboxH);
         }
 
         private void RemoveProjectile(ArrowProjectile arrow)
@@ -2719,7 +3609,24 @@ namespace TaskbarRPG
         }
 
         private WeaponItem CloneWeapon(WeaponItem w) =>
-            new WeaponItem { Name = w.Name, WeaponCategory = w.WeaponCategory, Damage = w.Damage, BasePrice = w.BasePrice };
+            new WeaponItem
+            {
+                Name = w.Name,
+                WeaponCategory = w.WeaponCategory,
+                Damage = w.Damage,
+                CooldownFrames = w.CooldownFrames,
+                SpritePath = w.SpritePath,
+                BasePrice = w.BasePrice
+            };
+
+        private Rect GetPlayerCollisionRect()
+        {
+            double hitboxW = Math.Max(6, Math.Min(playerWidth, playerHitboxWidth));
+            double hitboxH = Math.Max(6, Math.Min(playerHeight, playerHitboxHeight));
+            double hitboxX = playerX + ((playerWidth - hitboxW) / 2.0);
+            double hitboxY = playerY + (playerHeight - hitboxH);
+            return new Rect(hitboxX, hitboxY, hitboxW, hitboxH);
+        }
 
         // -----------------------------------------------------------------------
         // Drawing helpers
@@ -2727,10 +3634,13 @@ namespace TaskbarRPG
         private void DrawPlayer()
         {
             animationFrameCounter++;
+            double spriteDrawWidth = playerWidth;
 
             if (isAttacking)
             {
                 player.Source = playerAttackSprite;
+                if (playerAttackSprite.PixelHeight > 0)
+                    spriteDrawWidth = playerHeight * ((double)playerAttackSprite.PixelWidth / playerAttackSprite.PixelHeight);
             }
             else if (!isOnGround)
             {
@@ -2749,19 +3659,30 @@ namespace TaskbarRPG
 
             player.RenderTransformOrigin = new Point(0.5, 0.5);
             player.RenderTransform = new ScaleTransform(facingRight ? 1 : -1, 1);
+            player.Width = spriteDrawWidth;
 
-            Canvas.SetLeft(player, playerX);
+            double playerDrawX = playerX;
+            if (isAttacking && !facingRight)
+                playerDrawX = playerX - (spriteDrawWidth - playerWidth);
+
+            Canvas.SetLeft(player, playerDrawX);
             Canvas.SetTop(player, playerY);
+
+            Rect playerHitbox = GetPlayerCollisionRect();
+            playerHitboxDebug.Width = playerHitbox.Width;
+            playerHitboxDebug.Height = playerHitbox.Height;
+            Canvas.SetLeft(playerHitboxDebug, playerHitbox.X);
+            Canvas.SetTop(playerHitboxDebug, playerHitbox.Y);
         }
 
         private void DrawAttackHitbox()
         {
             double overlapIntoPlayer = 16;
-            double forwardReach = 8;
+            double forwardReach = gameConfig.AttackPosition;
 
             double hitboxX = facingRight
-                ? playerX + playerWidth - overlapIntoPlayer
-                : playerX - attackHitbox.Width + overlapIntoPlayer;
+                ? playerX + playerWidth - overlapIntoPlayer + forwardReach
+                : playerX - attackHitbox.Width + overlapIntoPlayer - forwardReach;
 
             Canvas.SetLeft(attackHitbox, hitboxX);
             Canvas.SetTop(attackHitbox, playerY + 10);
