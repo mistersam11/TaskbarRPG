@@ -1,0 +1,8 @@
+{
+  "Debug": false,
+  "AttackPosition": 8,
+  "MoveSpeed": 4.4,
+  "Gravity": 0.8,
+  "JumpStrength": -7.4,
+  "StatusFrames": 60
+}
