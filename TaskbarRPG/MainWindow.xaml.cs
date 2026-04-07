@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -3315,6 +3316,15 @@ namespace TaskbarRPG
                 SpritePath = w.SpritePath,
                 BasePrice = w.BasePrice
             };
+
+        private Rect GetPlayerHitboxRect()
+        {
+            double hitboxW = Math.Max(6, Math.Min(playerWidth, playerHitboxWidth));
+            double hitboxH = Math.Max(6, Math.Min(playerHeight, playerHitboxHeight));
+            double hitboxX = playerX + ((playerWidth - hitboxW) / 2.0);
+            double hitboxY = playerY + (playerHeight - hitboxH);
+            return new Rect(hitboxX, hitboxY, hitboxW, hitboxH);
+        }
 
         private Rect GetPlayerHitboxRect()
         {
