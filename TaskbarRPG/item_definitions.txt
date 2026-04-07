@@ -1,9 +1,9 @@
 # name;damage;cooldown
-Rusty Sword;2;12
-Copper Sword;3;11
-Iron Sword;4;10
-Steel Sword;5;9
-Simple Bow;2;14
-Hunter Bow;3;13
-War Bow;4;12
-Long Bow;5;11
+Rusty Sword;2;20
+Copper Sword;3;18
+Iron Sword;4;22
+Steel Sword;5;18
+Simple Bow;2;30
+Hunter Bow;3;25
+War Bow;4;25
+Long Bow;5;30
