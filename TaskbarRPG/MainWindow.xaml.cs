@@ -9,6 +9,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using System.Windows.Media.Imaging;
 
 namespace TaskbarRPG
 {
@@ -720,7 +721,7 @@ namespace TaskbarRPG
 
         // UI elements
         private DispatcherTimer timer = null!;
-        private Rectangle player = null!;
+        private Image player = null!;
         private Rectangle attackHitbox = null!;
         private Rectangle groundRect = null!;
 
@@ -735,6 +736,11 @@ namespace TaskbarRPG
         private TextBlock leftExitText = null!;
         private TextBlock rightExitText = null!;
         private TextBlock statusText = null!;
+
+        private BitmapImage LoadSprite(string relativePath)
+        {
+            return new BitmapImage(new Uri($"pack://application:,,,/{relativePath}", UriKind.Absolute));
+        }
 
         // Game state
         private Area currentArea = null!;
@@ -1230,14 +1236,15 @@ namespace TaskbarRPG
 
         private void CreatePlayer()
         {
-            player = new Rectangle
+            player = new Image
             {
                 Width = playerWidth,
                 Height = playerHeight,
-                Fill = Brushes.Red,
-                RadiusX = 3,
-                RadiusY = 3,
+                Stretch = Stretch.Fill,
+                Source = LoadSprite("Assets/Player/player_idle.png"),
             };
+
+            RenderOptions.SetBitmapScalingMode(player, BitmapScalingMode.NearestNeighbor);
 
             attackHitbox = new Rectangle
             {
@@ -2263,7 +2270,6 @@ namespace TaskbarRPG
 
                 playerData.Health = Math.Max(0, playerData.Health - enemy.Definition.ContactDamage);
                 playerDamageCooldownFrames = PlayerDamageCooldownMax;
-                player.Fill = Brushes.OrangeRed;
                 ShowStatus($"Hit by {enemy.Definition.Name}!", 35);
                 break;
             }
@@ -2313,7 +2319,6 @@ namespace TaskbarRPG
         {
             isAttacking = true;
             attackFramesRemaining = attackDurationFrames;
-            player.Fill = Brushes.Yellow;
             attackHitbox.Visibility = Visibility.Visible;
             ApplyMeleeDamageNow();
         }
@@ -2345,9 +2350,6 @@ namespace TaskbarRPG
         {
             if (!isAttacking)
             {
-                player.Fill = playerDamageCooldownFrames > 0
-                    ? Brushes.OrangeRed
-                    : (controlsEnabled ? Brushes.Red : Brushes.DarkGray);
 
                 attackHitbox.Visibility = Visibility.Hidden;
                 return;
@@ -2357,9 +2359,7 @@ namespace TaskbarRPG
             if (attackFramesRemaining <= 0)
             {
                 isAttacking = false;
-                player.Fill = playerDamageCooldownFrames > 0
-                    ? Brushes.OrangeRed
-                    : (controlsEnabled ? Brushes.Red : Brushes.DarkGray);
+                
 
                 attackHitbox.Visibility = Visibility.Hidden;
             }

@@ -8,4 +8,14 @@
     <UseWPF>true</UseWPF>
   </PropertyGroup>
 
+  <ItemGroup>
+    <None Remove="Assets\Player\AnimationSheet_Character.png" />
+    <None Remove="Assets\Player\player_idle.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\Player\AnimationSheet_Character.png" />
+    <Resource Include="Assets\Player\player_idle.png" />
+  </ItemGroup>
+
 </Project>
