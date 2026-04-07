@@ -8,6 +8,7 @@ All runtime-editable files are copied to output and loaded from the executable d
 
 - `TaskbarRPG/gameconfig.json`
 - `TaskbarRPG/enemy_definitions.txt`
+- `TaskbarRPG/boss_definitions.txt`
 - `TaskbarRPG/area_definitions.txt`
 - `TaskbarRPG/item_definitions.txt`
 - `TaskbarRPG/save_state.txt`
@@ -36,6 +37,18 @@ name;health;attackdamage;movespeed;level;biomes;stages
 - Optional:
   - `biomes`: comma-separated (`plains,cave,forest,tundra`) or `*`
   - `stages`: comma/range list (`1-4,8,12-15`) or `*`
+
+## Boss definitions (`boss_definitions.txt`)
+
+One boss per line, in progression order (line 1 = stage 5 boss, line 2 = stage 10 boss, etc):
+
+```txt
+name;health;attackdamage;movespeed;width(optional);height(optional)
+```
+
+- Required: first 4 columns.
+- Optional width/height default to `64`.
+- If the player reaches a boss milestone with no corresponding line, progression ends and they win for now.
 
 ## Area definitions (`area_definitions.txt`)
 
@@ -75,9 +88,12 @@ name;damage;cooldown
 | Player idle | `Assets/Player` | `player_idle.png` | `32x32` |
 | Player walk | `Assets/Player` | `player_walk1.png`, `player_walk2.png` | `32x32` |
 | Player attack | `Assets/Player` | `player_attack.png` | `64x32` (or wider, 32 high) |
+| Player damaged (optional) | `Assets/Player` | `player_damaged.png` | `32x32` |
 | Player arrow (optional) | `Assets/Player` | `arrow.png` | `16x16` |
 | Enemy walk frames | `Assets/Enemy` | `<name>_walk1.png`, `<name>_walk2.png`, ... | `~18x24` visual target |
-| Enemy attack frames | `Assets/Enemy` | `<name>_attack1.png`, `<name>_attack2.png`, ... | width renders at 2x walking width while attacking |
+| Enemy attack frames | `Assets/Enemy` | `<name>_attack1.png`, `<name>_attack2.png`, ... | any size; in-game width follows frame aspect ratio |
+| Boss walk frames | `Assets/Boss` | `<boss_name>_walk1.png`, `<boss_name>_walk2.png`, ... | `64x64` typical (varying sizes supported) |
+| Boss attack frames | `Assets/Boss` | `<boss_name>_attack1.png`, `<boss_name>_attack2.png`, ... | extra-wide frames supported; width follows frame aspect ratio |
 | Item sprite (optional metadata) | `Assets/Item` | `<item_name_normalized>.png` (e.g. `iron_sword.png`) | `32x32` recommended |
 | Town/NPC/shop | `Assets/Town` | existing built-in names | existing project assets |
 

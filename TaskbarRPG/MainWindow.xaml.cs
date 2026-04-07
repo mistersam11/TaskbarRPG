@@ -283,6 +283,16 @@ namespace TaskbarRPG
         }
     }
 
+    public class BossTemplate
+    {
+        public string Name { get; set; } = "Boss";
+        public int Health { get; set; } = 80;
+        public int AttackDamage { get; set; } = 18;
+        public double MoveSpeed { get; set; } = 1.15;
+        public double Width { get; set; } = 64;
+        public double Height { get; set; } = 64;
+    }
+
     public class AreaTemplate
     {
         public string Name { get; set; } = "Wilderness";
@@ -311,12 +321,33 @@ namespace TaskbarRPG
 
     public static class AreaDefinitions
     {
-        private static readonly Dictionary<int, string> BossNames = new()
+        private static readonly List<BossTemplate> defaultBossTemplates = new()
         {
-            [5] = "The Goo",
-            [10] = "Fallen Knight",
-            [15] = "DB-5000",
+            new BossTemplate { Name = "The Goo", Health = 80, AttackDamage = 15, MoveSpeed = 1.05, Width = 64, Height = 64 },
+            new BossTemplate { Name = "Fallen Knight", Health = 105, AttackDamage = 19, MoveSpeed = 1.2, Width = 64, Height = 64 },
+            new BossTemplate { Name = "DB-5000", Health = 130, AttackDamage = 24, MoveSpeed = 1.1, Width = 72, Height = 64 },
         };
+
+        private static readonly List<BossTemplate> bossTemplates = new();
+
+        static AreaDefinitions()
+        {
+            SetBossTemplates(defaultBossTemplates);
+        }
+
+        public static void SetBossTemplates(IEnumerable<BossTemplate> templates)
+        {
+            bossTemplates.Clear();
+            bossTemplates.AddRange(templates.Where(t => !string.IsNullOrWhiteSpace(t.Name)));
+        }
+
+        public static bool CanGenerateStage(int stage)
+        {
+            if (stage <= 0) return true;
+            if (stage % 5 != 0) return true;
+            int bossIndex = (stage / 5) - 1;
+            return bossIndex >= 0 && bossIndex < bossTemplates.Count;
+        }
 
         public static Area GetTown()
         {
@@ -452,26 +483,40 @@ namespace TaskbarRPG
 
         private static Area CreateBossArea(int stage)
         {
-            string bossName = BossNames.TryGetValue(stage, out var knownBoss)
-                ? knownBoss
-                : "Ancient Tyrant";
+            int bossIndex = Math.Max(0, (stage / 5) - 1);
+            if (bossIndex >= bossTemplates.Count)
+            {
+                return new Area
+                {
+                    Type = AreaType.Adventure,
+                    Name = $"Stage {stage} - Victory",
+                    GroundColor = Color.FromRgb(50, 72, 62),
+                    Biome = null,
+                    StageNumber = stage,
+                    IsBossArea = false,
+                    Zones = CreateEmptyZones(),
+                    EnemySpawns = new List<EnemyDefinition>()
+                };
+            }
+
+            BossTemplate template = bossTemplates[bossIndex];
 
             int power = Math.Max(3, stage);
             var boss = new EnemyDefinition
             {
-                Name = bossName,
+                Name = template.Name,
                 PowerLevel = Math.Max(1, stage + 2),
                 X = 820,
                 PatrolRange = 170,
                 AggroRange = 260,
-                Speed = 1.0 + Math.Min(1.1, power * 0.03),
-                MaxHealth = 50 + power * 6,
-                ContactDamage = 10 + power,
+                Speed = Math.Max(0.7, template.MoveSpeed + Math.Min(0.35, power * 0.01)),
+                MaxHealth = Math.Max(20, template.Health + (power * 6)),
+                ContactDamage = Math.Max(3, template.AttackDamage + (power / 2)),
                 XpReward = 20 + power * 2,
                 GoldMin = 12 + power,
                 GoldMax = 20 + power * 2,
-                Width = 40,
-                Height = 44,
+                Width = Math.Max(24, template.Width),
+                Height = Math.Max(24, template.Height),
                 Color = Color.FromRgb(180, 60, 70),
             };
 
@@ -869,6 +914,7 @@ namespace TaskbarRPG
         private BitmapImage playerWalk1Sprite = null!;
         private BitmapImage playerWalk2Sprite = null!;
         private BitmapImage playerAttackSprite = null!;
+        private BitmapImage? playerDamagedSprite = null;
         private BitmapImage? playerArrowSprite = null;
 
         private void UpdateNpcAnimations()
@@ -937,13 +983,21 @@ namespace TaskbarRPG
 
         private List<BitmapImage> LoadEnemyFrames(string enemyName, string action)
         {
-            var frames = new List<BitmapImage>();
             string normalized = enemyName.Trim().ToLowerInvariant().Replace(" ", "_");
-            string dir = IOPath.Combine(AppContext.BaseDirectory, "Assets", "Enemy");
+            var bossFrames = LoadFramesFromDirectory(IOPath.Combine(AppContext.BaseDirectory, "Assets", "Boss"), normalized, action);
+            if (bossFrames.Count > 0)
+                return bossFrames;
+
+            return LoadFramesFromDirectory(IOPath.Combine(AppContext.BaseDirectory, "Assets", "Enemy"), normalized, action);
+        }
+
+        private List<BitmapImage> LoadFramesFromDirectory(string dir, string normalizedName, string action)
+        {
+            var frames = new List<BitmapImage>();
             if (!System.IO.Directory.Exists(dir))
                 return frames;
 
-            string pattern = $"{normalized}_{action}*.png";
+            string pattern = $"{normalizedName}_{action}*.png";
             foreach (string file in System.IO.Directory
                 .GetFiles(dir, pattern)
                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
@@ -958,6 +1012,14 @@ namespace TaskbarRPG
             }
 
             return frames;
+        }
+
+        private double GetSpriteWidthForHeight(BitmapSource frame, double targetHeight)
+        {
+            if (frame.PixelHeight <= 0 || targetHeight <= 0)
+                return targetHeight;
+
+            return targetHeight * ((double)frame.PixelWidth / frame.PixelHeight);
         }
 
         private BitmapImage? LoadOptionalPlayerSpriteFromDisk(string fileName)
@@ -988,6 +1050,7 @@ namespace TaskbarRPG
         private readonly List<ArrowProjectile> activeProjectiles = new();
         private readonly List<AreaTemplate> areaTemplates = new();
         private readonly List<EnemyTemplate> enemyTemplates = new();
+        private readonly List<BossTemplate> bossTemplates = new();
         private readonly List<ItemTemplate> itemTemplates = new();
 
         private readonly PlayerData playerData = new();
@@ -1051,6 +1114,7 @@ namespace TaskbarRPG
             LoadConfig();
             LoadAreaTemplates();
             LoadEnemyTemplates();
+            LoadBossTemplates();
             LoadItemTemplates();
             InitializePlayerData();
             int startStage = LoadSaveState();
@@ -1065,6 +1129,7 @@ namespace TaskbarRPG
             playerWalk1Sprite = LoadSprite("Assets/Player/player_walk1.png");
             playerWalk2Sprite = LoadSprite("Assets/Player/player_walk2.png");
             playerAttackSprite = LoadSprite("Assets/Player/player_attack.png");
+            playerDamagedSprite = LoadOptionalPlayerSpriteFromDisk("player_damaged.png");
             playerArrowSprite = LoadOptionalPlayerSpriteFromDisk("arrow.png");
 
             CreatePlayer();
@@ -1261,6 +1326,53 @@ namespace TaskbarRPG
 
                 enemyTemplates.Add(template);
             }
+        }
+
+        private void LoadBossTemplates()
+        {
+            bossTemplates.Clear();
+            string path = IOPath.Combine(AppContext.BaseDirectory, "boss_definitions.txt");
+
+            if (!System.IO.File.Exists(path))
+            {
+                string seed =
+                    "# name;health;attackdamage;movespeed;width(optional);height(optional)\n" +
+                    "The Goo;80;15;1.05;64;64\n" +
+                    "Fallen Knight;105;19;1.20;64;64\n" +
+                    "DB-5000;130;24;1.10;72;64";
+                System.IO.File.WriteAllText(path, seed);
+            }
+
+            foreach (var raw in System.IO.File.ReadAllLines(path))
+            {
+                string line = raw.Trim();
+                if (line.Length == 0 || line.StartsWith("#")) continue;
+
+                string[] parts = line.Split(';');
+                if (parts.Length < 4) continue;
+                if (!int.TryParse(parts[1], out int health)) continue;
+                if (!int.TryParse(parts[2], out int attackDamage)) continue;
+                if (!double.TryParse(parts[3], out double moveSpeed)) continue;
+
+                double width = 64;
+                double height = 64;
+                if (parts.Length >= 5 && double.TryParse(parts[4], out double parsedWidth))
+                    width = parsedWidth;
+                if (parts.Length >= 6 && double.TryParse(parts[5], out double parsedHeight))
+                    height = parsedHeight;
+
+                bossTemplates.Add(new BossTemplate
+                {
+                    Name = parts[0].Trim(),
+                    Health = Math.Max(20, health),
+                    AttackDamage = Math.Max(2, attackDamage),
+                    MoveSpeed = Math.Max(0.4, moveSpeed),
+                    Width = Math.Max(24, width),
+                    Height = Math.Max(24, height)
+                });
+            }
+
+            AreaDefinitions.SetBossTemplates(bossTemplates);
         }
 
         private void LoadItemTemplates()
@@ -1894,8 +2006,20 @@ namespace TaskbarRPG
             if (currentStageNumber == 0)
             {
                 leftExitText.Text = "";
-                rightExitText.Text = $"Stage {highestUnlockedStage} >";
-                rightExitText.Foreground = Brushes.White;
+                int displayStage = highestUnlockedStage;
+                while (displayStage > 1 && !AreaDefinitions.CanGenerateStage(displayStage))
+                    displayStage--;
+
+                if (AreaDefinitions.CanGenerateStage(displayStage))
+                {
+                    rightExitText.Text = $"Stage {displayStage} >";
+                    rightExitText.Foreground = Brushes.White;
+                }
+                else
+                {
+                    rightExitText.Text = "Victory!";
+                    rightExitText.Foreground = Brushes.Gold;
+                }
             }
             else
             {
@@ -1909,10 +2033,11 @@ namespace TaskbarRPG
                 }
                 else
                 {
+                    bool canAdvance = AreaDefinitions.CanGenerateStage(currentStageNumber + 1);
                     rightExitText.Text = currentArea.IsBossArea
                         ? "Town >"
-                        : $"Stage {currentStageNumber + 1} >";
-                    rightExitText.Foreground = Brushes.White;
+                        : canAdvance ? $"Stage {currentStageNumber + 1} >" : "Victory!";
+                    rightExitText.Foreground = canAdvance || currentArea.IsBossArea ? Brushes.White : Brushes.Gold;
                 }
             }
         }
@@ -2632,6 +2757,12 @@ namespace TaskbarRPG
                 currentStageNumber = 0;
                 currentArea = AreaDefinitions.GetTown();
             }
+            else if (!AreaDefinitions.CanGenerateStage(stageNumber))
+            {
+                currentStageNumber = 0;
+                currentArea = AreaDefinitions.GetTown();
+                ShowStatus("You defeated all configured bosses. You win for now!", 150);
+            }
             else
             {
                 if (!stageAreas.TryGetValue(stageNumber, out var stageArea))
@@ -2739,7 +2870,19 @@ namespace TaskbarRPG
             {
                 if (currentStageNumber == 0)
                 {
-                    LoadArea(highestUnlockedStage, TransitionDirection.Right);
+                    int targetStage = highestUnlockedStage;
+                    while (targetStage > 1 && !AreaDefinitions.CanGenerateStage(targetStage))
+                        targetStage--;
+
+                    if (!AreaDefinitions.CanGenerateStage(targetStage))
+                    {
+                        ShowStatus("No configured boss for the next milestone. You win for now!", 120);
+                        playerX = Width - playerWidth;
+                    }
+                    else
+                    {
+                        LoadArea(targetStage, TransitionDirection.Right);
+                    }
                 }
                 else
                 {
@@ -2754,7 +2897,16 @@ namespace TaskbarRPG
                     }
                     else
                     {
-                        LoadArea(currentStageNumber + 1, TransitionDirection.Right);
+                        int nextStage = currentStageNumber + 1;
+                        if (!AreaDefinitions.CanGenerateStage(nextStage))
+                        {
+                            ShowStatus("No more bosses configured. You win for now!", 140);
+                            LoadArea(0, TransitionDirection.Right);
+                        }
+                        else
+                        {
+                            LoadArea(nextStage, TransitionDirection.Right);
+                        }
                     }
                 }
             }
@@ -2964,9 +3116,10 @@ namespace TaskbarRPG
                 if (walkFrames.Count > 0 || attackFrames.Count > 0)
                 {
                     var firstFrame = walkFrames.FirstOrDefault() ?? attackFrames.First();
+                    double initialWidth = GetSpriteWidthForHeight(firstFrame, def.Height);
                     bodySprite = new Image
                     {
-                        Width = def.Width,
+                        Width = initialWidth,
                         Height = def.Height,
                         Stretch = Stretch.Fill,
                         Source = firstFrame
@@ -3083,12 +3236,15 @@ namespace TaskbarRPG
                 double enemyCenterX = enemy.X + enemy.Body.Width / 2;
                 double distance = Math.Abs(playerCenterX - enemyCenterX);
 
-                if (distance <= enemy.Definition.AggroRange)
+                bool inAggroRange = distance <= enemy.Definition.AggroRange;
+                bool inAttackRange = distance <= Math.Max(36, enemy.Definition.Width + 20);
+
+                if (inAggroRange)
                 {
                     // Chase the player
                     enemy.Direction = playerCenterX >= enemyCenterX ? 1 : -1;
 
-                    if (!enemy.IsAttacking && enemy.AttackCooldownFrames <= 0 && rng.NextDouble() < 0.02)
+                    if (!enemy.IsAttacking && enemy.AttackCooldownFrames <= 0 && inAttackRange)
                     {
                         enemy.IsAttacking = true;
                         enemy.AttackFramesRemaining = Math.Max(10, enemy.AttackFrames.Count * 8);
@@ -3103,7 +3259,7 @@ namespace TaskbarRPG
                     else if (enemy.X >= enemy.RightBound) enemy.Direction = -1;
                 }
 
-                if (!enemy.IsAttacking)
+                if (!enemy.IsAttacking && (!inAggroRange || !inAttackRange))
                     enemy.X += enemy.Speed * enemy.Direction;
 
                 enemy.X = Math.Max(0, Math.Min(Width - enemy.Definition.Width, enemy.X));
@@ -3142,11 +3298,18 @@ namespace TaskbarRPG
 
                 double drawX = enemy.X;
                 double spriteWidth = enemy.Definition.Width;
-                if (enemy.IsAttacking && enemy.AttackFrames.Count > 0)
+                if (enemy.BodySprite?.Source is BitmapSource currentFrame)
+                {
+                    spriteWidth = GetSpriteWidthForHeight(currentFrame, enemy.Definition.Height);
+                }
+                else if (enemy.IsAttacking && enemy.AttackFrames.Count > 0)
                 {
                     spriteWidth = enemy.Definition.Width * 2;
-                    if (enemy.Direction < 0)
-                        drawX = enemy.X - (spriteWidth - enemy.Definition.Width);
+                }
+
+                if (enemy.Direction < 0 && spriteWidth > enemy.Definition.Width)
+                {
+                    drawX = enemy.X - (spriteWidth - enemy.Definition.Width);
                 }
 
                 enemy.Body.Width = spriteWidth;
@@ -3642,6 +3805,10 @@ namespace TaskbarRPG
                 player.Source = playerAttackSprite;
                 if (playerAttackSprite.PixelHeight > 0)
                     spriteDrawWidth = playerHeight * ((double)playerAttackSprite.PixelWidth / playerAttackSprite.PixelHeight);
+            }
+            else if (playerDamageCooldownFrames > 0 && playerDamagedSprite != null)
+            {
+                player.Source = playerDamagedSprite;
             }
             else if (!isOnGround)
             {
