@@ -53,6 +53,8 @@ namespace TaskbarRPG
     public enum PanelMode
     {
         None,
+        SystemMenu,
+        ResetConfirm,
         FastTravel,
         Stats,
         Map,
@@ -656,8 +658,13 @@ namespace TaskbarRPG
         public EnemyDefinition Definition = null!;
         public FrameworkElement Body = null!;
         public Image? BodySprite = null;
-        public List<BitmapImage> IdleFrames { get; set; } = new();
+        public List<BitmapImage> WalkFrames { get; set; } = new();
         public List<BitmapImage> AttackFrames { get; set; } = new();
+        public Rectangle AttackHitbox = null!;
+        public bool IsAttacking = false;
+        public int AttackFramesRemaining = 0;
+        public int AttackCooldownFrames = 0;
+        public bool AttackDamageApplied = false;
         public TextBlock Label = null!;
         public Rectangle HealthBg = null!;
         public Rectangle HealthFill = null!;
@@ -704,6 +711,7 @@ namespace TaskbarRPG
         private const int VK_UP = 0x26;
         private const int VK_RIGHT = 0x27;
         private const int VK_SPACE = 0x20;
+        private const int VK_ESCAPE = 0x1B;
         private const int VK_A = 0x41;
         private const int VK_C = 0x43;
         private const int VK_D = 0x44;
@@ -1275,6 +1283,28 @@ namespace TaskbarRPG
             System.IO.File.WriteAllLines(savePath, lines);
         }
 
+        private void ResetProgress()
+        {
+            stageAreas.Clear();
+            previousArea = null;
+            highestUnlockedStage = 1;
+
+            playerData.Level = 1;
+            playerData.Experience = 0;
+            playerData.Gold = 10;
+            playerData.MaxHealth = 100;
+            playerData.Health = 100;
+            playerData.Inventory.Clear();
+            playerData.EquippedSword = null;
+            playerData.EquippedBow = null;
+            InitializePlayerData();
+
+            CloseAllPanels();
+            LoadArea(0, TransitionDirection.Right, animate: false);
+            SaveGameState();
+            ShowStatus("Progress reset.", 90);
+        }
+
         private static int GetInt(Dictionary<string, string> values, string key, int fallback)
         {
             return values.TryGetValue(key, out var raw) && int.TryParse(raw, out int parsed)
@@ -1429,7 +1459,10 @@ namespace TaskbarRPG
                     jumpHeld = isDown; break;
                 case VK_Z: meleeHeld = isDown; break;
                 case VK_X: fireHeld = isDown; break;
-                case VK_C: closeHeld = isDown; break;
+                case VK_C:
+                case VK_ESCAPE:
+                    closeHeld = isDown;
+                    break;
                 case VK_F: fastTravelHeld = isDown; break;
                 case VK_E: statsHeld = isDown; break;
                 case VK_M: mapHeld = isDown; break;
@@ -1456,6 +1489,7 @@ namespace TaskbarRPG
                 case VK_SPACE:
                 case VK_A:
                 case VK_C:
+                case VK_ESCAPE:
                 case VK_D:
                 case VK_E:
                 case VK_F:
@@ -1939,7 +1973,16 @@ namespace TaskbarRPG
 
             if (closePressedThisFrame)
             {
-                CloseAllPanels();
+                if (panelMode == PanelMode.SystemMenu || panelMode == PanelMode.ResetConfirm)
+                {
+                    CloseAllPanels();
+                }
+                else
+                {
+                    panelMode = PanelMode.SystemMenu;
+                    panelBorder.Visibility = Visibility.Visible;
+                    RenderCurrentPanel();
+                }
                 CacheLastFrameInput();
                 return;
             }
@@ -1955,6 +1998,13 @@ namespace TaskbarRPG
             if (panelMode == PanelMode.FastTravel)
             {
                 HandleFastTravelSelection();
+                CacheLastFrameInput();
+                return;
+            }
+
+            if (panelMode == PanelMode.SystemMenu || panelMode == PanelMode.ResetConfirm)
+            {
+                HandleSystemMenuSelection();
                 CacheLastFrameInput();
                 return;
             }
@@ -2065,6 +2115,8 @@ namespace TaskbarRPG
         {
             switch (panelMode)
             {
+                case PanelMode.SystemMenu: RenderSystemMenuPanel(); break;
+                case PanelMode.ResetConfirm: RenderResetConfirmPanel(); break;
                 case PanelMode.FastTravel: RenderFastTravelPanel(); break;
                 case PanelMode.Stats: RenderStatsPanel(); break;
                 case PanelMode.Map: RenderMapPanel(); break;
@@ -2079,6 +2131,31 @@ namespace TaskbarRPG
         // -----------------------------------------------------------------------
         // Panel renderers
         // -----------------------------------------------------------------------
+        private void RenderSystemMenuPanel()
+        {
+            panelText.Text =
+                "SYSTEM MENU\n" +
+                "\n" +
+                "1. Save\n" +
+                "2. Save + Exit\n" +
+                "3. Reset Progress\n" +
+                "\n" +
+                "ESC/C = close";
+            FitPanelText();
+        }
+
+        private void RenderResetConfirmPanel()
+        {
+            panelText.Text =
+                "RESET PROGRESS?\n" +
+                "\n" +
+                "1. No (back)\n" +
+                "2. Yes (reset)\n" +
+                "\n" +
+                "ESC/C = cancel";
+            FitPanelText();
+        }
+
         private void RenderFastTravelPanel()
         {
             panelText.Text =
@@ -2256,6 +2333,45 @@ namespace TaskbarRPG
                 if (numberHeld[i] && !numberHeldLastFrame[i])
                     return i;
             return -1;
+        }
+
+        private void HandleSystemMenuSelection()
+        {
+            int index = GetPressedNumberIndex();
+            if (index < 0) return;
+            int number = index + 1;
+
+            if (panelMode == PanelMode.SystemMenu)
+            {
+                if (number == 1)
+                {
+                    SaveGameState();
+                    ShowStatus("Game saved.", 60);
+                    CloseAllPanels();
+                }
+                else if (number == 2)
+                {
+                    SaveGameState();
+                    Close();
+                }
+                else if (number == 3)
+                {
+                    panelMode = PanelMode.ResetConfirm;
+                    RenderCurrentPanel();
+                }
+            }
+            else if (panelMode == PanelMode.ResetConfirm)
+            {
+                if (number == 1)
+                {
+                    panelMode = PanelMode.SystemMenu;
+                    RenderCurrentPanel();
+                }
+                else if (number == 2)
+                {
+                    ResetProgress();
+                }
+            }
         }
 
         private void HandleFastTravelSelection()
@@ -2725,15 +2841,15 @@ namespace TaskbarRPG
 
             foreach (var def in area.EnemySpawns)
             {
-                var idleFrames = LoadEnemyFrames(def.Name, "idle");
+                var walkFrames = LoadEnemyFrames(def.Name, "walk");
                 var attackFrames = LoadEnemyFrames(def.Name, "attack");
 
                 FrameworkElement body;
                 Image? bodySprite = null;
 
-                if (idleFrames.Count > 0 || attackFrames.Count > 0)
+                if (walkFrames.Count > 0 || attackFrames.Count > 0)
                 {
-                    var firstFrame = idleFrames.FirstOrDefault() ?? attackFrames.First();
+                    var firstFrame = walkFrames.FirstOrDefault() ?? attackFrames.First();
                     bodySprite = new Image
                     {
                         Width = def.Width,
@@ -2784,15 +2900,26 @@ namespace TaskbarRPG
                     Fill = Brushes.LimeGreen
                 };
 
+                var attackHitbox = new Rectangle
+                {
+                    Width = def.Width * 2,
+                    Height = Math.Max(8, def.Height * 0.65),
+                    Fill = gameConfig.Debug ? new SolidColorBrush(Color.FromArgb(80, 255, 70, 70)) : Brushes.Transparent,
+                    Stroke = gameConfig.Debug ? Brushes.OrangeRed : null,
+                    StrokeThickness = gameConfig.Debug ? 1 : 0
+                };
+
                 GameCanvas.Children.Add(body);
                 GameCanvas.Children.Add(label);
                 GameCanvas.Children.Add(healthBg);
                 GameCanvas.Children.Add(healthFill);
+                GameCanvas.Children.Add(attackHitbox);
 
                 Panel.SetZIndex(body, 12);
                 Panel.SetZIndex(label, 13);
                 Panel.SetZIndex(healthBg, 14);
                 Panel.SetZIndex(healthFill, 15);
+                Panel.SetZIndex(attackHitbox, 11);
 
                 double floorLine = groundY + playerHeight;
 
@@ -2801,8 +2928,9 @@ namespace TaskbarRPG
                     Definition = def,
                     Body = body,
                     BodySprite = bodySprite,
-                    IdleFrames = idleFrames,
+                    WalkFrames = walkFrames,
                     AttackFrames = attackFrames,
+                    AttackHitbox = attackHitbox,
                     Label = label,
                     HealthBg = healthBg,
                     HealthFill = healthFill,
@@ -2826,6 +2954,7 @@ namespace TaskbarRPG
                 GameCanvas.Children.Remove(enemy.Label);
                 GameCanvas.Children.Remove(enemy.HealthBg);
                 GameCanvas.Children.Remove(enemy.HealthFill);
+                GameCanvas.Children.Remove(enemy.AttackHitbox);
             }
             activeEnemies.Clear();
         }
@@ -2844,6 +2973,14 @@ namespace TaskbarRPG
                 {
                     // Chase the player
                     enemy.Direction = playerCenterX >= enemyCenterX ? 1 : -1;
+
+                    if (!enemy.IsAttacking && enemy.AttackCooldownFrames <= 0 && rng.NextDouble() < 0.02)
+                    {
+                        enemy.IsAttacking = true;
+                        enemy.AttackFramesRemaining = Math.Max(10, enemy.AttackFrames.Count * 8);
+                        enemy.AttackDamageApplied = false;
+                        enemy.AttackCooldownFrames = 38;
+                    }
                 }
                 else
                 {
@@ -2852,15 +2989,27 @@ namespace TaskbarRPG
                     else if (enemy.X >= enemy.RightBound) enemy.Direction = -1;
                 }
 
-                enemy.X += enemy.Speed * enemy.Direction;
-                enemy.X = Math.Max(0, Math.Min(Width - enemy.Body.Width, enemy.X));
+                if (!enemy.IsAttacking)
+                    enemy.X += enemy.Speed * enemy.Direction;
+
+                enemy.X = Math.Max(0, Math.Min(Width - enemy.Definition.Width, enemy.X));
                 enemy.Y = groundY + playerHeight - enemy.Body.Height;
+
+                if (enemy.AttackCooldownFrames > 0)
+                    enemy.AttackCooldownFrames--;
+
+                if (enemy.IsAttacking)
+                {
+                    enemy.AttackFramesRemaining--;
+                    if (enemy.AttackFramesRemaining <= 0)
+                        enemy.IsAttacking = false;
+                }
 
                 if (enemy.BodySprite != null)
                 {
-                    var frames = (distance <= 42 && enemy.AttackFrames.Count > 0)
+                    var frames = (enemy.IsAttacking && enemy.AttackFrames.Count > 0)
                         ? enemy.AttackFrames
-                        : enemy.IdleFrames;
+                        : enemy.WalkFrames;
 
                     if (frames.Count > 0)
                     {
@@ -2877,7 +3026,17 @@ namespace TaskbarRPG
             {
                 if (!enemy.IsAlive) continue;
 
-                Canvas.SetLeft(enemy.Body, enemy.X);
+                double drawX = enemy.X;
+                double spriteWidth = enemy.Definition.Width;
+                if (enemy.IsAttacking && enemy.AttackFrames.Count > 0)
+                {
+                    spriteWidth = enemy.Definition.Width * 2;
+                    if (enemy.Direction < 0)
+                        drawX = enemy.X - (spriteWidth - enemy.Definition.Width);
+                }
+
+                enemy.Body.Width = spriteWidth;
+                Canvas.SetLeft(enemy.Body, drawX);
                 Canvas.SetTop(enemy.Body, enemy.Y);
 
                 if (enemy.BodySprite != null)
@@ -2897,6 +3056,13 @@ namespace TaskbarRPG
                 Canvas.SetTop(enemy.HealthBg, enemy.Y - 22);
                 Canvas.SetLeft(enemy.HealthFill, enemy.X - 5);
                 Canvas.SetTop(enemy.HealthFill, enemy.Y - 22);
+
+                double hitboxX = enemy.Direction >= 0
+                    ? enemy.X + enemy.Definition.Width - 2
+                    : enemy.X - enemy.AttackHitbox.Width + 2;
+                double hitboxY = enemy.Y + 6;
+                Canvas.SetLeft(enemy.AttackHitbox, hitboxX);
+                Canvas.SetTop(enemy.AttackHitbox, hitboxY);
             }
         }
 
@@ -2910,13 +3076,23 @@ namespace TaskbarRPG
             {
                 if (!enemy.IsAlive) continue;
 
-                Rect enemyRect = new Rect(enemy.X, enemy.Y, enemy.Body.Width, enemy.Body.Height);
-                if (!playerRect.IntersectsWith(enemyRect)) continue;
+                if (enemy.IsAttacking && !enemy.AttackDamageApplied)
+                {
+                    Rect attackRect = new Rect(
+                        Canvas.GetLeft(enemy.AttackHitbox),
+                        Canvas.GetTop(enemy.AttackHitbox),
+                        enemy.AttackHitbox.Width,
+                        enemy.AttackHitbox.Height);
 
-                playerData.Health = Math.Max(0, playerData.Health - enemy.Definition.ContactDamage);
-                playerDamageCooldownFrames = PlayerDamageCooldownMax;
-                ShowStatus($"Hit by {enemy.Definition.Name}!", 35);
-                break;
+                    if (playerRect.IntersectsWith(attackRect))
+                    {
+                        playerData.Health = Math.Max(0, playerData.Health - enemy.Definition.ContactDamage);
+                        playerDamageCooldownFrames = PlayerDamageCooldownMax;
+                        enemy.AttackDamageApplied = true;
+                        ShowStatus($"{enemy.Definition.Name} attacks!", 35);
+                        break;
+                    }
+                }
             }
         }
 
@@ -2940,6 +3116,7 @@ namespace TaskbarRPG
             GameCanvas.Children.Remove(enemy.Label);
             GameCanvas.Children.Remove(enemy.HealthBg);
             GameCanvas.Children.Remove(enemy.HealthFill);
+            GameCanvas.Children.Remove(enemy.AttackHitbox);
             activeEnemies.Remove(enemy);
 
             ShowStatus($"+{enemy.Definition.XpReward} XP, +{goldDrop}g", 60);
