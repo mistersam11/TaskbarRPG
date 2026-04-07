@@ -92,6 +92,8 @@ namespace TaskbarRPG
     {
         public WeaponCategory WeaponCategory { get; set; }
         public int Damage { get; set; }
+        public int CooldownFrames { get; set; } = 10;
+        public string? SpritePath { get; set; } = null;
 
         public WeaponItem()
         {
@@ -99,7 +101,18 @@ namespace TaskbarRPG
             Stackable = false;
         }
 
-        public override string GetDisplayText() => $"{Name} (DMG {Damage})";
+        public override string GetDisplayText() => $"{Name} (DMG {Damage}, CD {CooldownFrames})";
+    }
+
+    public class ItemTemplate
+    {
+        public string Name { get; set; } = "";
+        public int Damage { get; set; } = 1;
+        public int CooldownFrames { get; set; } = 10;
+        public string? SpritePath { get; set; } = null;
+
+        public WeaponCategory Category =>
+            Name.Contains("bow", StringComparison.OrdinalIgnoreCase) ? WeaponCategory.Bow : WeaponCategory.Sword;
     }
 
     public class ConsumableItem : ItemBase
@@ -466,6 +479,7 @@ namespace TaskbarRPG
                 Name = "Old Sword",
                 WeaponCategory = WeaponCategory.Sword,
                 Damage = 2,
+                CooldownFrames = 12,
                 BasePrice = 8,
             };
         }
@@ -477,6 +491,7 @@ namespace TaskbarRPG
                 Name = "Simple Bow",
                 WeaponCategory = WeaponCategory.Bow,
                 Damage = 1,
+                CooldownFrames = 14,
                 BasePrice = 10,
             };
         }
@@ -513,6 +528,7 @@ namespace TaskbarRPG
                 Name = $"{prefixes[rng.Next(prefixes.Length)]} {suffixes[rng.Next(suffixes.Length)]}",
                 WeaponCategory = WeaponCategory.Sword,
                 Damage = damage,
+                CooldownFrames = rng.Next(8, 15),
                 BasePrice = price,
             };
         }
@@ -529,6 +545,7 @@ namespace TaskbarRPG
                 Name = $"{prefixes[rng.Next(prefixes.Length)]} {suffixes[rng.Next(suffixes.Length)]}",
                 WeaponCategory = WeaponCategory.Bow,
                 Damage = damage,
+                CooldownFrames = rng.Next(10, 17),
                 BasePrice = price,
             };
         }
@@ -932,6 +949,7 @@ namespace TaskbarRPG
         private readonly List<SpawnedEnemy> activeEnemies = new();
         private readonly List<ArrowProjectile> activeProjectiles = new();
         private readonly List<EnemyTemplate> enemyTemplates = new();
+        private readonly List<ItemTemplate> itemTemplates = new();
 
         private readonly PlayerData playerData = new();
         private GameConfig gameConfig = new();
@@ -959,12 +977,14 @@ namespace TaskbarRPG
         private double groundStripHeight = 14;
 
         // Game state flags
-        private bool controlsEnabled = false;
+        private bool controlsEnabled = true;
         private PanelMode panelMode = PanelMode.None;
 
         private bool isAttacking = false;
         private int attackFramesRemaining = 0;
         private int attackDurationFrames = 8;
+        private int meleeCooldownFrames = 0;
+        private int bowCooldownFrames = 0;
 
         private SpawnedZoneVisual? currentInteractableZone = null;
         private ShopZoneContent? activeShop = null;
@@ -991,6 +1011,7 @@ namespace TaskbarRPG
         {
             LoadConfig();
             LoadEnemyTemplates();
+            LoadItemTemplates();
             InitializePlayerData();
             int startStage = LoadSaveState();
             PositionAboveTaskbar();
@@ -1121,6 +1142,60 @@ namespace TaskbarRPG
             }
         }
 
+        private void LoadItemTemplates()
+        {
+            itemTemplates.Clear();
+            string itemPath = IOPath.Combine(AppContext.BaseDirectory, "item_definitions.txt");
+
+            if (!System.IO.File.Exists(itemPath))
+            {
+                string seed =
+                    "Rusty Sword;2;12\n" +
+                    "Copper Sword;3;11\n" +
+                    "Iron Sword;4;10\n" +
+                    "Simple Bow;2;14\n" +
+                    "Hunter Bow;3;13\n" +
+                    "War Bow;4;12";
+                System.IO.File.WriteAllText(itemPath, seed);
+            }
+
+            foreach (var raw in System.IO.File.ReadAllLines(itemPath))
+            {
+                string line = raw.Trim();
+                if (line.Length == 0 || line.StartsWith("#")) continue;
+                string[] parts = line.Split(';');
+                if (parts.Length < 3) continue;
+                if (!int.TryParse(parts[1], out int dmg)) continue;
+                if (!int.TryParse(parts[2], out int cooldown)) continue;
+
+                string name = parts[0].Trim();
+                itemTemplates.Add(new ItemTemplate
+                {
+                    Name = name,
+                    Damage = Math.Max(1, dmg),
+                    CooldownFrames = Math.Max(1, cooldown),
+                    SpritePath = ResolveItemSpritePath(name)
+                });
+            }
+        }
+
+        private string? ResolveItemSpritePath(string itemName)
+        {
+            string normalized = itemName.Trim().ToLowerInvariant().Replace(" ", "_");
+            string dir = IOPath.Combine(AppContext.BaseDirectory, "Assets", "Item");
+            if (!System.IO.Directory.Exists(dir))
+                return null;
+
+            string direct = IOPath.Combine(dir, $"{normalized}.png");
+            if (System.IO.File.Exists(direct))
+                return direct;
+
+            string firstMatch = System.IO.Directory.GetFiles(dir, $"{normalized}*.png")
+                .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault() ?? "";
+            return firstMatch.Length > 0 ? firstMatch : null;
+        }
+
         private int LoadSaveState()
         {
             string savePath = IOPath.Combine(AppContext.BaseDirectory, "save_state.txt");
@@ -1212,7 +1287,7 @@ namespace TaskbarRPG
             string basePart = $"{entry.Item.Kind}|{entry.Item.Name.Replace("|", "")}|{entry.Quantity}|{entry.Item.BasePrice}";
             return entry.Item switch
             {
-                WeaponItem w => $"{basePart}|{w.WeaponCategory}|{w.Damage}",
+                WeaponItem w => $"{basePart}|{w.WeaponCategory}|{w.Damage}|{w.CooldownFrames}",
                 ConsumableItem c => $"{basePart}|{c.HealAmount}",
                 AmmoItem a => $"{basePart}|{a.AmmoType.Replace("|", "")}",
                 _ => basePart
@@ -1234,7 +1309,14 @@ namespace TaskbarRPG
                 ItemKind.Weapon when parts.Length >= 6 &&
                     Enum.TryParse<WeaponCategory>(parts[4], out var category) &&
                     int.TryParse(parts[5], out int dmg) =>
-                    new WeaponItem { Name = name, BasePrice = basePrice, WeaponCategory = category, Damage = dmg },
+                    new WeaponItem
+                    {
+                        Name = name,
+                        BasePrice = basePrice,
+                        WeaponCategory = category,
+                        Damage = dmg,
+                        CooldownFrames = parts.Length >= 7 && int.TryParse(parts[6], out int cd) ? cd : 10
+                    },
                 ItemKind.Consumable when parts.Length >= 5 &&
                     int.TryParse(parts[4], out int heal) =>
                     new ConsumableItem { Name = name, BasePrice = basePrice, HealAmount = heal },
@@ -1786,6 +1868,10 @@ namespace TaskbarRPG
 
             if (playerDamageCooldownFrames > 0)
                 playerDamageCooldownFrames--;
+            if (meleeCooldownFrames > 0)
+                meleeCooldownFrames--;
+            if (bowCooldownFrames > 0)
+                bowCooldownFrames--;
 
             if (statusFramesRemaining > 0)
                 statusFramesRemaining--;
@@ -1919,12 +2005,17 @@ namespace TaskbarRPG
                 var interactable = FindInteractableZoneInRange();
                 if (interactable != null)
                     InteractWithZone(interactable);
-                else if (!isAttacking)
+                else if (!isAttacking && meleeCooldownFrames <= 0)
                     StartMeleeAttack();
             }
 
             if (firePressedThisFrame && panelMode == PanelMode.None)
-                FireBow();
+            {
+                if (bowCooldownFrames <= 0)
+                    FireBow();
+                else
+                    ShowStatus($"Bow cooling down ({bowCooldownFrames})", 25);
+            }
 
             CacheLastFrameInput();
         }
@@ -2350,19 +2441,13 @@ namespace TaskbarRPG
                 switch (shop.ShopType)
                 {
                     case ShopType.Sword:
-                        for (int i = 0; i < 3; i++)
-                        {
-                            var sword = ItemFactory.CreateRandomSword(rng);
+                        foreach (var sword in GenerateShopWeapons(WeaponCategory.Sword, 3))
                             shop.Stock.Add(new ShopListing { Item = sword, Quantity = 1, Price = sword.BasePrice });
-                        }
                         break;
 
                     case ShopType.Bow:
-                        for (int i = 0; i < 2; i++)
-                        {
-                            var bow = ItemFactory.CreateRandomBow(rng);
+                        foreach (var bow in GenerateShopWeapons(WeaponCategory.Bow, 2))
                             shop.Stock.Add(new ShopListing { Item = bow, Quantity = 1, Price = bow.BasePrice });
-                        }
                         var arrow = ItemFactory.CreateArrowItem();
                         shop.Stock.Add(new ShopListing { Item = arrow, Quantity = 5, Price = 5 });
                         break;
@@ -2374,6 +2459,48 @@ namespace TaskbarRPG
                         break;
                 }
             }
+        }
+
+        private List<WeaponItem> GenerateShopWeapons(WeaponCategory category, int count)
+        {
+            int tier = Math.Max(0, (highestUnlockedStage - 1) / 5);
+            var pool = itemTemplates
+                .Where(i => i.Category == category)
+                .OrderBy(i => i.Damage)
+                .ToList();
+
+            if (pool.Count == 0)
+            {
+                return Enumerable.Range(0, count)
+                    .Select(_ => category == WeaponCategory.Sword
+                        ? ItemFactory.CreateRandomSword(rng)
+                        : ItemFactory.CreateRandomBow(rng))
+                    .ToList();
+            }
+
+            int maxIndex = Math.Min(pool.Count - 1, tier + 1);
+            var unlocked = pool.Take(maxIndex + 1).ToList();
+            var results = new List<WeaponItem>();
+
+            for (int i = 0; i < count; i++)
+            {
+                var template = unlocked[rng.Next(unlocked.Count)];
+                int dmg = template.Damage + Math.Max(0, tier / 2);
+                int cooldown = Math.Max(1, template.CooldownFrames - (tier / 3));
+                int price = (dmg * 8) + (tier * 6) + Math.Max(1, 20 - cooldown);
+
+                results.Add(new WeaponItem
+                {
+                    Name = template.Name,
+                    WeaponCategory = category,
+                    Damage = dmg,
+                    CooldownFrames = cooldown,
+                    BasePrice = price,
+                    SpritePath = template.SpritePath
+                });
+            }
+
+            return results;
         }
 
         private void CheckAreaTransition()
@@ -2850,6 +2977,7 @@ namespace TaskbarRPG
             isAttacking = true;
             attackFramesRemaining = attackDurationFrames;
             attackHitbox.Visibility = Visibility.Visible;
+            meleeCooldownFrames = Math.Max(1, playerData.EquippedSword?.CooldownFrames ?? attackDurationFrames);
             ApplyMeleeDamageNow();
         }
 
@@ -2955,6 +3083,8 @@ namespace TaskbarRPG
                 Damage = damage,
                 IsAlive = true
             });
+
+            bowCooldownFrames = Math.Max(1, playerData.EquippedBow?.CooldownFrames ?? 12);
         }
 
         private void UpdateProjectiles()
@@ -3177,7 +3307,24 @@ namespace TaskbarRPG
         }
 
         private WeaponItem CloneWeapon(WeaponItem w) =>
-            new WeaponItem { Name = w.Name, WeaponCategory = w.WeaponCategory, Damage = w.Damage, BasePrice = w.BasePrice };
+            new WeaponItem
+            {
+                Name = w.Name,
+                WeaponCategory = w.WeaponCategory,
+                Damage = w.Damage,
+                CooldownFrames = w.CooldownFrames,
+                SpritePath = w.SpritePath,
+                BasePrice = w.BasePrice
+            };
+
+        private Rect GetPlayerHitboxRect()
+        {
+            double hitboxW = Math.Max(6, Math.Min(playerWidth, playerHitboxWidth));
+            double hitboxH = Math.Max(6, Math.Min(playerHeight, playerHitboxHeight));
+            double hitboxX = playerX + ((playerWidth - hitboxW) / 2.0);
+            double hitboxY = playerY + (playerHeight - hitboxH);
+            return new Rect(hitboxX, hitboxY, hitboxW, hitboxH);
+        }
 
         private Rect GetPlayerHitboxRect()
         {
