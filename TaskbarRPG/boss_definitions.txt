@@ -1,0 +1,4 @@
+# name;health;attackdamage;movespeed;width(optional);height(optional)
+The Goo;80;15;1.05;64;64
+Fallen Knight;105;19;1.20;64;64
+DB-5000;130;24;1.10;72;64
