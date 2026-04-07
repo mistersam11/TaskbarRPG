@@ -1,7 +1,7 @@
 {
   "Debug": false,
-  "AttackPosition": 8,
-  "PlayerHitboxWidth": 24,
+  "AttackPosition": 15,
+  "PlayerHitboxWidth":18,
   "PlayerHitboxHeight": 28,
   "MoveSpeed": 4.4,
   "Gravity": 0.8,
