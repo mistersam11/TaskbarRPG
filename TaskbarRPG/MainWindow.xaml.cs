@@ -559,10 +559,15 @@ namespace TaskbarRPG
     public class SpawnedZoneVisual
     {
         public VariableZone Zone = null!;
-        public Rectangle Building = null!;
+        public FrameworkElement Building = null!;
         public TextBlock BuildingLabel = null!;
-        public Rectangle Npc = null!;
+
+        public Image Npc = null!;
         public TextBlock NpcLabel = null!;
+
+        public BitmapImage? NpcIdle1 = null!;
+        public BitmapImage? NpcIdle2 = null!;
+        public double NpcBaseY;
     }
 
     public class SpawnedEnemy
@@ -741,6 +746,63 @@ namespace TaskbarRPG
         private BitmapImage playerWalk1Sprite = null!;
         private BitmapImage playerWalk2Sprite = null!;
         private BitmapImage playerAttackSprite = null!;
+
+        private void UpdateNpcAnimations()
+        {
+            foreach (var visual in activeZoneVisuals)
+            {
+                if (visual.NpcIdle1 == null || visual.NpcIdle2 == null)
+                    continue;
+
+                bool useFirstFrame = ((animationFrameCounter / 20) % 2 == 0);
+                visual.Npc.Source = useFirstFrame ? visual.NpcIdle1 : visual.NpcIdle2;
+
+                double bounceOffset = useFirstFrame ? 0 : -1;
+                Canvas.SetTop(visual.Npc, visual.NpcBaseY + bounceOffset);
+            }
+        }
+
+        private BitmapImage? GetShopBuildingSprite(ZoneContent content)
+        {
+            if (content is not ShopZoneContent shop)
+                return null;
+
+            return shop.ShopType switch
+            {
+                ShopType.Sword => LoadSprite("Assets/Town/sword_shop.png"),
+                ShopType.Bow => LoadSprite("Assets/Town/bow_shop.png"),
+                ShopType.Healing => LoadSprite("Assets/Town/healing_shop.png"),
+                _ => null
+            };
+        }
+
+        private BitmapImage? GetShopNpcIdle1Sprite(ZoneContent content)
+        {
+            if (content is not ShopZoneContent shop)
+                return null;
+
+            return shop.ShopType switch
+            {
+                ShopType.Sword => LoadSprite("Assets/Town/blacksmith_idle1.png"),
+                ShopType.Bow => LoadSprite("Assets/Town/fletcher_idle1.png"),
+                ShopType.Healing => LoadSprite("Assets/Town/healer_idle1.png"),
+                _ => null
+            };
+        }
+
+        private BitmapImage? GetShopNpcIdle2Sprite(ZoneContent content)
+        {
+            if (content is not ShopZoneContent shop)
+                return null;
+
+            return shop.ShopType switch
+            {
+                ShopType.Sword => LoadSprite("Assets/Town/blacksmith_idle2.png"),
+                ShopType.Bow => LoadSprite("Assets/Town/fletcher_idle2.png"),
+                ShopType.Healing => LoadSprite("Assets/Town/healer_idle2.png"),
+                _ => null
+            };
+        }
 
         private int animationFrameCounter = 0;
 
@@ -1300,6 +1362,7 @@ namespace TaskbarRPG
 
         private void GameLoop(object? sender, EventArgs e)
         {
+            animationFrameCounter++;
             RefreshLayoutSizedElements();
             HandleInput();
 
@@ -1345,6 +1408,7 @@ namespace TaskbarRPG
             DrawPlayer();
             DrawAttackHitbox();
             DrawPlayerHud();
+            UpdateNpcAnimations();
             DrawInteractionIndicators();
             DrawEnemies();
             DrawProjectiles();
@@ -1987,16 +2051,34 @@ namespace TaskbarRPG
                 if (zone.Content == null)
                     continue;
 
-                var building = new Rectangle
+                FrameworkElement building;
+
+                var buildingSprite = GetShopBuildingSprite(zone.Content);
+                if (buildingSprite != null)
                 {
-                    Width = 96,
-                    Height = 52,
-                    Fill = new SolidColorBrush(zone.Content.BuildingColor),
-                    Stroke = Brushes.Black,
-                    StrokeThickness = 1,
-                    RadiusX = 4,
-                    RadiusY = 4,
-                };
+                    building = new Image
+                    {
+                        Width = 96,
+                        Height = 64,
+                        Stretch = Stretch.Fill,
+                        Source = buildingSprite
+                    };
+
+                    RenderOptions.SetBitmapScalingMode(building, BitmapScalingMode.NearestNeighbor);
+                }
+                else
+                {
+                    building = new Rectangle
+                    {
+                        Width = 96,
+                        Height = 64,
+                        Fill = new SolidColorBrush(zone.Content.BuildingColor),
+                        Stroke = Brushes.Black,
+                        StrokeThickness = 1,
+                        RadiusX = 4,
+                        RadiusY = 4,
+                    };
+                }
 
                 var buildingLabel = new TextBlock
                 {
@@ -2008,16 +2090,18 @@ namespace TaskbarRPG
                     TextAlignment = TextAlignment.Center,
                 };
 
-                var npc = new Rectangle
+                var npcIdle1 = GetShopNpcIdle1Sprite(zone.Content);
+                var npcIdle2 = GetShopNpcIdle2Sprite(zone.Content);
+
+                var npc = new Image
                 {
-                    Width = 16,
-                    Height = 24,
-                    Fill = new SolidColorBrush(zone.Content.NpcColor),
-                    Stroke = Brushes.Black,
-                    StrokeThickness = 1,
-                    RadiusX = 3,
-                    RadiusY = 3,
+                    Width = 32,
+                    Height = 32,
+                    Stretch = Stretch.Fill,
+                    Source = npcIdle1
                 };
+
+                RenderOptions.SetBitmapScalingMode(npc, BitmapScalingMode.NearestNeighbor);
 
                 var npcLabel = new TextBlock
                 {
@@ -2041,17 +2125,21 @@ namespace TaskbarRPG
 
                 double floorLine = groundY + playerHeight;
                 double buildingX = zone.X;
-                double buildingY = floorLine - building.Height;
-                double npcX = zone.X + 36;
+                double buildingHeight = building.Height;
+                double buildingY = floorLine - buildingHeight;
+
+                double npcX = zone.X + 32;
                 double npcY = floorLine - npc.Height;
 
                 Canvas.SetLeft(building, buildingX);
                 Canvas.SetTop(building, buildingY);
                 Canvas.SetLeft(buildingLabel, buildingX - 7);
                 Canvas.SetTop(buildingLabel, buildingY - 18);
+
                 Canvas.SetLeft(npc, npcX);
                 Canvas.SetTop(npc, npcY);
-                Canvas.SetLeft(npcLabel, npcX - 37);
+
+                Canvas.SetLeft(npcLabel, npcX - 29);
                 Canvas.SetTop(npcLabel, npcY - 16);
 
                 activeZoneVisuals.Add(new SpawnedZoneVisual
@@ -2060,7 +2148,10 @@ namespace TaskbarRPG
                     Building = building,
                     BuildingLabel = buildingLabel,
                     Npc = npc,
-                    NpcLabel = npcLabel
+                    NpcLabel = npcLabel,
+                    NpcIdle1 = npcIdle1,
+                    NpcIdle2 = npcIdle2,
+                    NpcBaseY = npcY
                 });
             }
         }
@@ -2119,15 +2210,13 @@ namespace TaskbarRPG
             {
                 if (visual == currentInteractableZone)
                 {
-                    visual.Npc.Stroke = Brushes.Gold;
-                    visual.Npc.StrokeThickness = 2;
                     visual.NpcLabel.Text = $"{visual.Zone.Content!.NpcName} [Z]";
+                    visual.NpcLabel.Foreground = Brushes.Gold;
                 }
                 else
                 {
-                    visual.Npc.Stroke = Brushes.Black;
-                    visual.Npc.StrokeThickness = 1;
                     visual.NpcLabel.Text = visual.Zone.Content!.NpcName;
+                    visual.NpcLabel.Foreground = Brushes.White;
                 }
             }
         }
