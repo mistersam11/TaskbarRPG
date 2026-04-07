@@ -193,6 +193,10 @@ namespace TaskbarRPG
         public double MoveSpeed { get; set; } = 4.4;
         public double Gravity { get; set; } = 0.8;
         public double JumpStrength { get; set; } = -7.4;
+        public double ArrowHitboxWidth { get; set; } = 10;
+        public double ArrowHitboxHeight { get; set; } = 6;
+        public double ArrowSpeed { get; set; } = 8.5;
+        public int ArrowDurationFrames { get; set; } = 35;
         public int StatusFrames { get; set; } = 60;
     }
 
@@ -652,7 +656,7 @@ namespace TaskbarRPG
 
     public class ArrowProjectile
     {
-        public Rectangle Body = null!;
+        public FrameworkElement Body = null!;
         public double X;
         public double Y;
         public int Direction;
@@ -810,6 +814,7 @@ namespace TaskbarRPG
         private BitmapImage playerWalk1Sprite = null!;
         private BitmapImage playerWalk2Sprite = null!;
         private BitmapImage playerAttackSprite = null!;
+        private BitmapImage? playerArrowSprite = null;
 
         private void UpdateNpcAnimations()
         {
@@ -900,6 +905,21 @@ namespace TaskbarRPG
             return frames;
         }
 
+        private BitmapImage? LoadOptionalPlayerSpriteFromDisk(string fileName)
+        {
+            string path = IOPath.Combine(AppContext.BaseDirectory, "Assets", "Player", fileName);
+            if (!System.IO.File.Exists(path))
+                return null;
+
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.UriSource = new Uri(path, UriKind.Absolute);
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.EndInit();
+            bitmap.Freeze();
+            return bitmap;
+        }
+
         // Game state
         private Area currentArea = null!;
         private Area? previousArea = null;
@@ -929,6 +949,10 @@ namespace TaskbarRPG
         private double jumpStrength = -7.4;
         private double playerHitboxWidth = 24;
         private double playerHitboxHeight = 28;
+        private double arrowHitboxWidth = 10;
+        private double arrowHitboxHeight = 6;
+        private double arrowSpeed = 8.5;
+        private int arrowDurationFrames = 35;
         private double groundY = 0;
         private bool isOnGround = false;
         private bool facingRight = true;
@@ -979,6 +1003,7 @@ namespace TaskbarRPG
             playerWalk1Sprite = LoadSprite("Assets/Player/player_walk1.png");
             playerWalk2Sprite = LoadSprite("Assets/Player/player_walk2.png");
             playerAttackSprite = LoadSprite("Assets/Player/player_attack.png");
+            playerArrowSprite = LoadOptionalPlayerSpriteFromDisk("arrow.png");
 
             CreatePlayer();
             SetupTransition();
@@ -1014,6 +1039,10 @@ namespace TaskbarRPG
             jumpStrength = gameConfig.JumpStrength;
             playerHitboxWidth = Math.Max(6, Math.Min(playerWidth, gameConfig.PlayerHitboxWidth));
             playerHitboxHeight = Math.Max(6, Math.Min(playerHeight, gameConfig.PlayerHitboxHeight));
+            arrowHitboxWidth = Math.Max(2, gameConfig.ArrowHitboxWidth);
+            arrowHitboxHeight = Math.Max(2, gameConfig.ArrowHitboxHeight);
+            arrowSpeed = Math.Max(1, gameConfig.ArrowSpeed);
+            arrowDurationFrames = Math.Max(1, gameConfig.ArrowDurationFrames);
         }
 
         private void LoadEnemyTemplates()
@@ -2751,20 +2780,37 @@ namespace TaskbarRPG
 
             int damage = playerData.BaseDamage + playerData.EquippedBow.Damage;
 
-            var body = new Rectangle
+            FrameworkElement body;
+            if (playerArrowSprite != null)
             {
-                Width = 12,
-                Height = 3,
-                Fill = Brushes.SandyBrown,
-                RadiusX = 1,
-                RadiusY = 1
-            };
+                var arrowImage = new Image
+                {
+                    Width = 16,
+                    Height = 16,
+                    Stretch = Stretch.Fill,
+                    Source = playerArrowSprite
+                };
+                RenderOptions.SetBitmapScalingMode(arrowImage, BitmapScalingMode.NearestNeighbor);
+                body = arrowImage;
+            }
+            else
+            {
+                body = new Rectangle
+                {
+                    Width = 12,
+                    Height = 3,
+                    Fill = Brushes.SandyBrown,
+                    RadiusX = 1,
+                    RadiusY = 1
+                };
+            }
 
             GameCanvas.Children.Add(body);
             Panel.SetZIndex(body, 22);
 
-            double startX = facingRight ? playerX + playerWidth + 2 : playerX - 12;
-            double startY = playerY + 12;
+            double startX = facingRight ? playerX + playerWidth + 2 : playerX - body.Width;
+            double startY = playerY + (playerHeight / 2) - (body.Height / 2);
+            double maxDistance = arrowSpeed * arrowDurationFrames;
 
             activeProjectiles.Add(new ArrowProjectile
             {
@@ -2772,8 +2818,8 @@ namespace TaskbarRPG
                 X = startX,
                 Y = startY,
                 Direction = facingRight ? 1 : -1,
-                Speed = 8.5,
-                MaxDistance = 280,
+                Speed = arrowSpeed,
+                MaxDistance = maxDistance,
                 DistanceTraveled = 0,
                 Damage = damage,
                 IsAlive = true
@@ -2796,7 +2842,7 @@ namespace TaskbarRPG
                     continue;
                 }
 
-                Rect arrowRect = new Rect(arrow.X, arrow.Y, arrow.Body.Width, arrow.Body.Height);
+                Rect arrowRect = GetArrowHitboxRect(arrow);
 
                 foreach (var enemy in activeEnemies.ToList())
                 {
@@ -2819,7 +2865,22 @@ namespace TaskbarRPG
                 if (!arrow.IsAlive) continue;
                 Canvas.SetLeft(arrow.Body, arrow.X);
                 Canvas.SetTop(arrow.Body, arrow.Y);
+
+                if (arrow.Body is Image image)
+                {
+                    image.RenderTransformOrigin = new Point(0.5, 0.5);
+                    image.RenderTransform = new ScaleTransform(arrow.Direction >= 0 ? 1 : -1, 1);
+                }
             }
+        }
+
+        private Rect GetArrowHitboxRect(ArrowProjectile arrow)
+        {
+            double hitboxW = Math.Max(2, arrowHitboxWidth);
+            double hitboxH = Math.Max(2, arrowHitboxHeight);
+            double hitboxX = arrow.X + ((arrow.Body.Width - hitboxW) / 2.0);
+            double hitboxY = arrow.Y + ((arrow.Body.Height - hitboxH) / 2.0);
+            return new Rect(hitboxX, hitboxY, hitboxW, hitboxH);
         }
 
         private void RemoveProjectile(ArrowProjectile arrow)
@@ -3002,10 +3063,13 @@ namespace TaskbarRPG
         private void DrawPlayer()
         {
             animationFrameCounter++;
+            double spriteDrawWidth = playerWidth;
 
             if (isAttacking)
             {
                 player.Source = playerAttackSprite;
+                if (playerAttackSprite.PixelHeight > 0)
+                    spriteDrawWidth = playerHeight * ((double)playerAttackSprite.PixelWidth / playerAttackSprite.PixelHeight);
             }
             else if (!isOnGround)
             {
@@ -3024,8 +3088,13 @@ namespace TaskbarRPG
 
             player.RenderTransformOrigin = new Point(0.5, 0.5);
             player.RenderTransform = new ScaleTransform(facingRight ? 1 : -1, 1);
+            player.Width = spriteDrawWidth;
 
-            Canvas.SetLeft(player, playerX);
+            double playerDrawX = playerX;
+            if (isAttacking && !facingRight)
+                playerDrawX = playerX - (spriteDrawWidth - playerWidth);
+
+            Canvas.SetLeft(player, playerDrawX);
             Canvas.SetTop(player, playerY);
 
             Rect playerHitbox = GetPlayerHitboxRect();
