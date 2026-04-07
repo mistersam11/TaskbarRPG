@@ -1,8 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
@@ -178,6 +180,16 @@ namespace TaskbarRPG
 
             return true;
         }
+    }
+
+    public class GameConfig
+    {
+        public bool Debug { get; set; } = false;
+        public int AttackPosition { get; set; } = 8;
+        public double MoveSpeed { get; set; } = 4.4;
+        public double Gravity { get; set; } = 0.8;
+        public double JumpStrength { get; set; } = -7.4;
+        public int StatusFrames { get; set; } = 60;
     }
 
     public class VariableZone
@@ -747,6 +759,7 @@ namespace TaskbarRPG
         private DispatcherTimer timer = null!;
         private Image player = null!;
         private Rectangle attackHitbox = null!;
+        private Rectangle playerHitboxDebug = null!;
         private Rectangle groundRect = null!;
 
         private Rectangle playerHealthBg = null!;
@@ -844,6 +857,7 @@ namespace TaskbarRPG
         private readonly List<ArrowProjectile> activeProjectiles = new();
 
         private readonly PlayerData playerData = new();
+        private GameConfig gameConfig = new();
 
         // Physics / layout
         private double playAreaHeight = 140;
@@ -892,6 +906,7 @@ namespace TaskbarRPG
         // -----------------------------------------------------------------------
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
+            LoadConfig();
             InitializePlayerData();
             PositionAboveTaskbar();
             MakeClickThrough();
@@ -912,6 +927,31 @@ namespace TaskbarRPG
             LoadArea(0, TransitionDirection.Right, animate: false);
             StartGameLoop();
 
+        }
+
+        private void LoadConfig()
+        {
+            string configPath = Path.Combine(AppContext.BaseDirectory, "gameconfig.json");
+            var options = new JsonSerializerOptions { WriteIndented = true };
+
+            try
+            {
+                if (!File.Exists(configPath))
+                {
+                    File.WriteAllText(configPath, JsonSerializer.Serialize(new GameConfig(), options));
+                }
+
+                var loaded = JsonSerializer.Deserialize<GameConfig>(File.ReadAllText(configPath));
+                gameConfig = loaded ?? new GameConfig();
+            }
+            catch
+            {
+                gameConfig = new GameConfig();
+            }
+
+            moveSpeed = gameConfig.MoveSpeed;
+            gravity = gameConfig.Gravity;
+            jumpStrength = gameConfig.JumpStrength;
         }
 
         private void InitializePlayerData()
@@ -1363,16 +1403,29 @@ namespace TaskbarRPG
             {
                 Width = 20,
                 Height = 12,
+                Fill = gameConfig.Debug ? new SolidColorBrush(Color.FromArgb(70, 255, 0, 0)) : Brushes.Transparent,
+                Visibility = gameConfig.Debug ? Visibility.Visible : Visibility.Hidden,
+                Stroke = gameConfig.Debug ? Brushes.Red : null,
+                StrokeThickness = gameConfig.Debug ? 1 : 0,
+            };
+
+            playerHitboxDebug = new Rectangle
+            {
+                Width = playerWidth,
+                Height = playerHeight,
                 Fill = Brushes.Transparent,
-                Visibility = Visibility.Hidden,
-                Stroke = null,
+                Stroke = Brushes.DeepSkyBlue,
+                StrokeThickness = 1,
+                Visibility = gameConfig.Debug ? Visibility.Visible : Visibility.Hidden,
             };
 
             GameCanvas.Children.Add(player);
+            GameCanvas.Children.Add(playerHitboxDebug);
             GameCanvas.Children.Add(attackHitbox);
 
             Panel.SetZIndex(player, 20);
-            Panel.SetZIndex(attackHitbox, 21);
+            Panel.SetZIndex(playerHitboxDebug, 21);
+            Panel.SetZIndex(attackHitbox, 22);
 
             groundY = Height - groundStripHeight - playerHeight;
             playerY = groundY;
@@ -1424,7 +1477,7 @@ namespace TaskbarRPG
             {
                 velocityX = 0;
                 if (!isAttacking)
-                    attackHitbox.Visibility = Visibility.Hidden;
+                    attackHitbox.Visibility = gameConfig.Debug ? Visibility.Visible : Visibility.Hidden;
             }
 
             currentInteractableZone = FindInteractableZoneInRange();
@@ -2248,8 +2301,8 @@ namespace TaskbarRPG
                     Width = def.Width,
                     Height = def.Height,
                     Fill = new SolidColorBrush(def.Color),
-                    Stroke = Brushes.Black,
-                    StrokeThickness = 1,
+                    Stroke = gameConfig.Debug ? Brushes.Red : null,
+                    StrokeThickness = gameConfig.Debug ? 1 : 0,
                     RadiusX = 4,
                     RadiusY = 4,
                 };
@@ -2477,7 +2530,7 @@ namespace TaskbarRPG
         {
             if (!isAttacking)
             {
-                attackHitbox.Visibility = Visibility.Hidden;
+                attackHitbox.Visibility = gameConfig.Debug ? Visibility.Visible : Visibility.Hidden;
                 return;
             }
 
@@ -2485,7 +2538,7 @@ namespace TaskbarRPG
             if (attackFramesRemaining <= 0)
             {
                 isAttacking = false;
-                attackHitbox.Visibility = Visibility.Hidden;
+                attackHitbox.Visibility = gameConfig.Debug ? Visibility.Visible : Visibility.Hidden;
             }
         }
 
@@ -2775,16 +2828,18 @@ namespace TaskbarRPG
 
             Canvas.SetLeft(player, playerX);
             Canvas.SetTop(player, playerY);
+            Canvas.SetLeft(playerHitboxDebug, playerX);
+            Canvas.SetTop(playerHitboxDebug, playerY);
         }
 
         private void DrawAttackHitbox()
         {
             double overlapIntoPlayer = 16;
-            double forwardReach = 8;
+            double forwardReach = gameConfig.AttackPosition;
 
             double hitboxX = facingRight
-                ? playerX + playerWidth - overlapIntoPlayer
-                : playerX - attackHitbox.Width + overlapIntoPlayer;
+                ? playerX + playerWidth - overlapIntoPlayer + forwardReach
+                : playerX - attackHitbox.Width + overlapIntoPlayer - forwardReach;
 
             Canvas.SetLeft(attackHitbox, hitboxX);
             Canvas.SetTop(attackHitbox, playerY + 10);
