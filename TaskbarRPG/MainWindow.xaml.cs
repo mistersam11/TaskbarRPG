@@ -9,6 +9,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using System.Windows.Media.Imaging;
@@ -187,6 +188,8 @@ namespace TaskbarRPG
     {
         public bool Debug { get; set; } = false;
         public int AttackPosition { get; set; } = 8;
+        public double PlayerHitboxWidth { get; set; } = 24;
+        public double PlayerHitboxHeight { get; set; } = 28;
         public double MoveSpeed { get; set; } = 4.4;
         public double Gravity { get; set; } = 0.8;
         public double JumpStrength { get; set; } = -7.4;
@@ -851,7 +854,6 @@ namespace TaskbarRPG
         private readonly Dictionary<int, Area> stageAreas = new();
         private int currentStageNumber = 0;
         private int highestUnlockedStage = 1;
-        private static readonly SolidColorBrush TextBackdrop = new(Color.FromArgb(180, 0, 0, 0));
 
         private readonly List<SpawnedZoneVisual> activeZoneVisuals = new();
         private readonly List<SpawnedEnemy> activeEnemies = new();
@@ -871,6 +873,8 @@ namespace TaskbarRPG
         private double moveSpeed = 4.4;
         private double gravity = 0.8;
         private double jumpStrength = -7.4;
+        private double playerHitboxWidth = 24;
+        private double playerHitboxHeight = 28;
         private double groundY = 0;
         private bool isOnGround = false;
         private bool facingRight = true;
@@ -953,6 +957,8 @@ namespace TaskbarRPG
             moveSpeed = gameConfig.MoveSpeed;
             gravity = gameConfig.Gravity;
             jumpStrength = gameConfig.JumpStrength;
+            playerHitboxWidth = Math.Max(6, Math.Min(playerWidth, gameConfig.PlayerHitboxWidth));
+            playerHitboxHeight = Math.Max(6, Math.Min(playerHeight, gameConfig.PlayerHitboxHeight));
         }
 
         private void InitializePlayerData()
@@ -1220,8 +1226,16 @@ namespace TaskbarRPG
 
         private void ApplyReadableTextStyle(TextBlock textBlock)
         {
-            textBlock.Background = TextBackdrop;
-            textBlock.Padding = new Thickness(2, 1, 2, 1);
+            textBlock.Background = Brushes.Transparent;
+            textBlock.Padding = new Thickness(0);
+            textBlock.FontWeight = FontWeights.Bold;
+            textBlock.Effect = new DropShadowEffect
+            {
+                Color = Colors.Black,
+                ShadowDepth = 0,
+                BlurRadius = 2,
+                Opacity = 1.0
+            };
             textBlock.FontSize += 2;
         }
 
@@ -1412,8 +1426,8 @@ namespace TaskbarRPG
 
             playerHitboxDebug = new Rectangle
             {
-                Width = playerWidth,
-                Height = playerHeight,
+                Width = playerHitboxWidth,
+                Height = playerHitboxHeight,
                 Fill = Brushes.Transparent,
                 Stroke = Brushes.DeepSkyBlue,
                 StrokeThickness = 1,
@@ -2431,7 +2445,7 @@ namespace TaskbarRPG
         {
             if (playerDamageCooldownFrames > 0) return;
 
-            Rect playerRect = new Rect(playerX, playerY, playerWidth, playerHeight);
+            Rect playerRect = GetPlayerHitboxRect();
 
             foreach (var enemy in activeEnemies)
             {
@@ -2798,6 +2812,15 @@ namespace TaskbarRPG
         private WeaponItem CloneWeapon(WeaponItem w) =>
             new WeaponItem { Name = w.Name, WeaponCategory = w.WeaponCategory, Damage = w.Damage, BasePrice = w.BasePrice };
 
+        private Rect GetPlayerHitboxRect()
+        {
+            double hitboxW = Math.Max(6, Math.Min(playerWidth, playerHitboxWidth));
+            double hitboxH = Math.Max(6, Math.Min(playerHeight, playerHitboxHeight));
+            double hitboxX = playerX + ((playerWidth - hitboxW) / 2.0);
+            double hitboxY = playerY + (playerHeight - hitboxH);
+            return new Rect(hitboxX, hitboxY, hitboxW, hitboxH);
+        }
+
         // -----------------------------------------------------------------------
         // Drawing helpers
         // -----------------------------------------------------------------------
@@ -2829,8 +2852,12 @@ namespace TaskbarRPG
 
             Canvas.SetLeft(player, playerX);
             Canvas.SetTop(player, playerY);
-            Canvas.SetLeft(playerHitboxDebug, playerX);
-            Canvas.SetTop(playerHitboxDebug, playerY);
+
+            Rect playerHitbox = GetPlayerHitboxRect();
+            playerHitboxDebug.Width = playerHitbox.Width;
+            playerHitboxDebug.Height = playerHitbox.Height;
+            Canvas.SetLeft(playerHitboxDebug, playerHitbox.X);
+            Canvas.SetTop(playerHitboxDebug, playerHitbox.Y);
         }
 
         private void DrawAttackHitbox()
