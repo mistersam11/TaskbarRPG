@@ -240,11 +240,35 @@ namespace TaskbarRPG
         public double Height { get; set; } = 24;
     }
 
+    public class EnemyTemplate
+    {
+        public string Name { get; set; } = "Enemy";
+        public int Health { get; set; } = 10;
+        public int AttackDamage { get; set; } = 4;
+        public double MoveSpeed { get; set; } = 1.0;
+        public int Level { get; set; } = 1;
+        public HashSet<BiomeType>? AllowedBiomes { get; set; } = null;
+        public List<(int Min, int Max)> StageRanges { get; set; } = new();
+
+        public bool CanSpawnIn(int stage, BiomeType biome)
+        {
+            bool biomeAllowed = AllowedBiomes == null || AllowedBiomes.Count == 0 || AllowedBiomes.Contains(biome);
+            if (!biomeAllowed) return false;
+
+            if (StageRanges.Count > 0)
+                return StageRanges.Any(r => stage >= r.Min && stage <= r.Max);
+
+            int blockStart = ((Math.Max(1, Level) - 1) / 5) * 5 + 1;
+            return stage >= blockStart && stage <= blockStart + 3;
+        }
+    }
+
     public class Area
     {
         public AreaType Type { get; set; }
         public string Name { get; set; } = "";
         public Color GroundColor { get; set; }
+        public BiomeType? Biome { get; set; }
         public int StageNumber { get; set; }
         public bool IsBossArea { get; set; }
         public VariableZone[] Zones { get; set; } = new VariableZone[6];
@@ -326,39 +350,38 @@ namespace TaskbarRPG
             };
         }
 
-        public static Area CreateStageArea(int stage, Random rng)
+        public static Area CreateStageArea(int stage, Random rng, IReadOnlyList<EnemyTemplate> enemyTemplates)
         {
             if (stage % 5 == 0)
                 return CreateBossArea(stage);
 
             var biome = Biomes[rng.Next(Biomes.Length)];
             int count = rng.Next(4, 9);
-            int baseStat = Math.Max(1, stage);
-            string[] names = biome.Biome switch
-            {
-                BiomeType.Plains => new[] { "Slime", "Boar", "Raider" },
-                BiomeType.Cave => new[] { "Bat", "Crawler", "Imp" },
-                BiomeType.Forest => new[] { "Wolf", "Sprite", "Bandit" },
-                _ => new[] { "Frostling", "Ice Bat", "Yeti Cub" }
-            };
-
             var spawns = new List<EnemyDefinition>();
             double spacing = 1300.0 / count;
+            var eligibleTemplates = enemyTemplates
+                .Where(t => t.CanSpawnIn(stage, biome.Biome))
+                .ToList();
+
             for (int i = 0; i < count; i++)
             {
-                int toughness = baseStat + rng.Next(0, 4);
+                EnemyTemplate chosen = eligibleTemplates.Count > 0
+                    ? eligibleTemplates[rng.Next(eligibleTemplates.Count)]
+                    : new EnemyTemplate { Name = "Wisp", Health = 8, AttackDamage = 4, MoveSpeed = 1.0, Level = stage };
+
+                int stageBonus = Math.Max(0, stage / 4);
                 spawns.Add(new EnemyDefinition
                 {
-                    Name = names[rng.Next(names.Length)],
+                    Name = chosen.Name,
                     X = 160 + (i * spacing) + rng.Next(-25, 26),
                     PatrolRange = 90 + rng.Next(0, 70),
                     AggroRange = 160 + rng.Next(0, 70),
-                    Speed = 0.9 + (rng.NextDouble() * 0.8),
-                    MaxHealth = 8 + toughness * 2,
-                    ContactDamage = 4 + toughness,
-                    XpReward = 5 + toughness,
-                    GoldMin = 1 + (toughness / 2),
-                    GoldMax = 3 + toughness,
+                    Speed = Math.Max(0.4, chosen.MoveSpeed),
+                    MaxHealth = Math.Max(2, chosen.Health + (stageBonus * 2)),
+                    ContactDamage = Math.Max(1, chosen.AttackDamage + stageBonus),
+                    XpReward = Math.Max(2, chosen.Level * 2 + stageBonus),
+                    GoldMin = Math.Max(1, chosen.Level / 2),
+                    GoldMax = Math.Max(2, chosen.Level + stageBonus + 1),
                     Color = Color.FromRgb(
                         (byte)rng.Next(70, 210),
                         (byte)rng.Next(70, 210),
@@ -371,6 +394,7 @@ namespace TaskbarRPG
                 Type = AreaType.Adventure,
                 Name = $"Stage {stage} - {biome.Name}",
                 GroundColor = biome.Color,
+                Biome = biome.Biome,
                 StageNumber = stage,
                 IsBossArea = false,
                 Zones = CreateEmptyZones(),
@@ -407,6 +431,7 @@ namespace TaskbarRPG
                 Type = AreaType.Adventure,
                 Name = $"Stage {stage} - Boss",
                 GroundColor = Color.FromRgb(70, 65, 75),
+                Biome = null,
                 StageNumber = stage,
                 IsBossArea = true,
                 Zones = CreateEmptyZones(),
@@ -608,7 +633,10 @@ namespace TaskbarRPG
     public class SpawnedEnemy
     {
         public EnemyDefinition Definition = null!;
-        public Rectangle Body = null!;
+        public FrameworkElement Body = null!;
+        public Image? BodySprite = null;
+        public List<BitmapImage> IdleFrames { get; set; } = new();
+        public List<BitmapImage> AttackFrames { get; set; } = new();
         public TextBlock Label = null!;
         public Rectangle HealthBg = null!;
         public Rectangle HealthFill = null!;
@@ -847,6 +875,31 @@ namespace TaskbarRPG
             return new BitmapImage(new Uri($"pack://application:,,,/{relativePath}", UriKind.Absolute));
         }
 
+        private List<BitmapImage> LoadEnemyFrames(string enemyName, string action)
+        {
+            var frames = new List<BitmapImage>();
+            string normalized = enemyName.Trim().ToLowerInvariant().Replace(" ", "_");
+            string dir = IOPath.Combine(AppContext.BaseDirectory, "Assets", "Enemy");
+            if (!System.IO.Directory.Exists(dir))
+                return frames;
+
+            string pattern = $"{normalized}_{action}*.png";
+            foreach (string file in System.IO.Directory
+                .GetFiles(dir, pattern)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+            {
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.UriSource = new Uri(file, UriKind.Absolute);
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.EndInit();
+                bitmap.Freeze();
+                frames.Add(bitmap);
+            }
+
+            return frames;
+        }
+
         // Game state
         private Area currentArea = null!;
         private Area? previousArea = null;
@@ -858,6 +911,7 @@ namespace TaskbarRPG
         private readonly List<SpawnedZoneVisual> activeZoneVisuals = new();
         private readonly List<SpawnedEnemy> activeEnemies = new();
         private readonly List<ArrowProjectile> activeProjectiles = new();
+        private readonly List<EnemyTemplate> enemyTemplates = new();
 
         private readonly PlayerData playerData = new();
         private GameConfig gameConfig = new();
@@ -912,6 +966,7 @@ namespace TaskbarRPG
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
             LoadConfig();
+            LoadEnemyTemplates();
             InitializePlayerData();
             PositionAboveTaskbar();
             MakeClickThrough();
@@ -959,6 +1014,81 @@ namespace TaskbarRPG
             jumpStrength = gameConfig.JumpStrength;
             playerHitboxWidth = Math.Max(6, Math.Min(playerWidth, gameConfig.PlayerHitboxWidth));
             playerHitboxHeight = Math.Max(6, Math.Min(playerHeight, gameConfig.PlayerHitboxHeight));
+        }
+
+        private void LoadEnemyTemplates()
+        {
+            enemyTemplates.Clear();
+            string defsPath = IOPath.Combine(AppContext.BaseDirectory, "enemy_definitions.txt");
+
+            if (!System.IO.File.Exists(defsPath))
+            {
+                string seed =
+                    "slime;10;4;0.9;1;plains;\n" +
+                    "bat;9;5;1.4;2;cave;\n" +
+                    "wolf;14;6;1.2;4;forest;\n" +
+                    "crawler;18;8;1.1;6;cave;6-9\n" +
+                    "frostling;22;10;1.0;8;tundra;6-9";
+                System.IO.File.WriteAllText(defsPath, seed);
+            }
+
+            foreach (var raw in System.IO.File.ReadAllLines(defsPath))
+            {
+                string line = raw.Trim();
+                if (line.Length == 0 || line.StartsWith("#")) continue;
+
+                string[] parts = line.Split(';');
+                if (parts.Length < 5) continue;
+
+                if (!int.TryParse(parts[1], out int hp)) continue;
+                if (!int.TryParse(parts[2], out int atk)) continue;
+                if (!double.TryParse(parts[3], out double speed)) continue;
+                if (!int.TryParse(parts[4], out int level)) continue;
+
+                var template = new EnemyTemplate
+                {
+                    Name = parts[0].Trim(),
+                    Health = hp,
+                    AttackDamage = atk,
+                    MoveSpeed = speed,
+                    Level = level
+                };
+
+                if (parts.Length >= 6 && !string.IsNullOrWhiteSpace(parts[5]))
+                {
+                    var biomes = new HashSet<BiomeType>();
+                    foreach (string token in parts[5].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    {
+                        if (token == "*") { biomes.Clear(); break; }
+                        if (Enum.TryParse<BiomeType>(token, true, out var biome))
+                            biomes.Add(biome);
+                    }
+                    if (biomes.Count > 0)
+                        template.AllowedBiomes = biomes;
+                }
+
+                if (parts.Length >= 7 && !string.IsNullOrWhiteSpace(parts[6]))
+                {
+                    foreach (string token in parts[6].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    {
+                        if (token == "*")
+                        {
+                            template.StageRanges.Clear();
+                            break;
+                        }
+
+                        string[] range = token.Split('-', StringSplitOptions.TrimEntries);
+                        if (range.Length == 1 && int.TryParse(range[0], out int exact))
+                            template.StageRanges.Add((exact, exact));
+                        else if (range.Length == 2 &&
+                                 int.TryParse(range[0], out int min) &&
+                                 int.TryParse(range[1], out int max))
+                            template.StageRanges.Add((Math.Min(min, max), Math.Max(min, max)));
+                    }
+                }
+
+                enemyTemplates.Add(template);
+            }
         }
 
         private void InitializePlayerData()
@@ -2030,7 +2160,7 @@ namespace TaskbarRPG
             {
                 if (!stageAreas.TryGetValue(stageNumber, out var stageArea))
                 {
-                    stageArea = AreaDefinitions.CreateStageArea(stageNumber, rng);
+                    stageArea = AreaDefinitions.CreateStageArea(stageNumber, rng, enemyTemplates);
                     stageAreas[stageNumber] = stageArea;
                 }
 
@@ -2311,16 +2441,38 @@ namespace TaskbarRPG
 
             foreach (var def in area.EnemySpawns)
             {
-                var body = new Rectangle
+                var idleFrames = LoadEnemyFrames(def.Name, "idle");
+                var attackFrames = LoadEnemyFrames(def.Name, "attack");
+
+                FrameworkElement body;
+                Image? bodySprite = null;
+
+                if (idleFrames.Count > 0 || attackFrames.Count > 0)
                 {
-                    Width = def.Width,
-                    Height = def.Height,
-                    Fill = new SolidColorBrush(def.Color),
-                    Stroke = gameConfig.Debug ? Brushes.Red : null,
-                    StrokeThickness = gameConfig.Debug ? 1 : 0,
-                    RadiusX = 4,
-                    RadiusY = 4,
-                };
+                    var firstFrame = idleFrames.FirstOrDefault() ?? attackFrames.First();
+                    bodySprite = new Image
+                    {
+                        Width = def.Width,
+                        Height = def.Height,
+                        Stretch = Stretch.Fill,
+                        Source = firstFrame
+                    };
+                    RenderOptions.SetBitmapScalingMode(bodySprite, BitmapScalingMode.NearestNeighbor);
+                    body = bodySprite;
+                }
+                else
+                {
+                    body = new Rectangle
+                    {
+                        Width = def.Width,
+                        Height = def.Height,
+                        Fill = new SolidColorBrush(def.Color),
+                        Stroke = gameConfig.Debug ? Brushes.Red : null,
+                        StrokeThickness = gameConfig.Debug ? 1 : 0,
+                        RadiusX = 4,
+                        RadiusY = 4,
+                    };
+                }
 
                 var label = new TextBlock
                 {
@@ -2364,6 +2516,9 @@ namespace TaskbarRPG
                 {
                     Definition = def,
                     Body = body,
+                    BodySprite = bodySprite,
+                    IdleFrames = idleFrames,
+                    AttackFrames = attackFrames,
                     Label = label,
                     HealthBg = healthBg,
                     HealthFill = healthFill,
@@ -2416,6 +2571,19 @@ namespace TaskbarRPG
                 enemy.X += enemy.Speed * enemy.Direction;
                 enemy.X = Math.Max(0, Math.Min(Width - enemy.Body.Width, enemy.X));
                 enemy.Y = groundY + playerHeight - enemy.Body.Height;
+
+                if (enemy.BodySprite != null)
+                {
+                    var frames = (distance <= 42 && enemy.AttackFrames.Count > 0)
+                        ? enemy.AttackFrames
+                        : enemy.IdleFrames;
+
+                    if (frames.Count > 0)
+                    {
+                        int frameIndex = (animationFrameCounter / 10) % frames.Count;
+                        enemy.BodySprite.Source = frames[frameIndex];
+                    }
+                }
             }
         }
 
@@ -2427,6 +2595,13 @@ namespace TaskbarRPG
 
                 Canvas.SetLeft(enemy.Body, enemy.X);
                 Canvas.SetTop(enemy.Body, enemy.Y);
+
+                if (enemy.BodySprite != null)
+                {
+                    enemy.BodySprite.RenderTransformOrigin = new Point(0.5, 0.5);
+                    enemy.BodySprite.RenderTransform = new ScaleTransform(enemy.Direction >= 0 ? 1 : -1, 1);
+                }
+
                 Canvas.SetLeft(enemy.Label, enemy.X - 26);
                 Canvas.SetTop(enemy.Label, enemy.Y - 14);
 
