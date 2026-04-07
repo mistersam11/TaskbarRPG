@@ -1233,10 +1233,10 @@ namespace TaskbarRPG
             {
                 Color = Colors.Black,
                 ShadowDepth = 0,
-                BlurRadius = 2,
+                BlurRadius = 3,
                 Opacity = 1.0
             };
-            textBlock.FontSize += 2;
+            textBlock.FontSize += 3;
         }
 
         private void CreateHud()
