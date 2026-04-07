@@ -42,4 +42,10 @@
     <Resource Include="Assets\Town\sword_shop.png" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="gameconfig.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>
