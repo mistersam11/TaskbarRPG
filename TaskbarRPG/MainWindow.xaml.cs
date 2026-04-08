@@ -790,6 +790,7 @@ namespace TaskbarRPG
         public bool IsAlive = true;
         public int CurrentHealth;
         public double CurrentSpriteWidth;
+        public bool IsAggroLocked = false;
     }
 
     public class ArrowProjectile
@@ -3461,6 +3462,9 @@ namespace TaskbarRPG
                 double distance = Math.Abs(playerCenterX - enemyCenterX);
 
                 bool inAggroRange = distance <= enemy.Definition.AggroRange;
+                if (inAggroRange)
+                    enemy.IsAggroLocked = true;
+                bool hasAggro = enemy.IsAggroLocked;
                 // Enemy damage now comes from direct body contact (no dedicated enemy attack hitbox),
                 // so "attack range" should be driven by body size plus a small anticipation buffer.
                 double attackReach = Math.Max(16, enemy.Definition.Width * 0.7);
@@ -3470,15 +3474,15 @@ namespace TaskbarRPG
 
                 if (enemy.CurrentBehaviorId == "hop_contact")
                 {
-                    UpdateHopContactEnemy(enemy, inAggroRange, playerCenterX);
+                    UpdateHopContactEnemy(enemy, hasAggro, playerCenterX);
                 }
                 else if (enemy.CurrentBehaviorId == "dash_strike")
                 {
-                    UpdateDashStrikeEnemy(enemy, inAggroRange, inAttackRange, playerCenterX, enemyCenterX);
+                    UpdateDashStrikeEnemy(enemy, hasAggro, inAttackRange, playerCenterX, enemyCenterX);
                 }
                 else
                 {
-                    UpdateMeleeChaserEnemy(enemy, inAggroRange, inAttackRange, playerCenterX, enemyCenterX);
+                    UpdateMeleeChaserEnemy(enemy, hasAggro, inAttackRange, playerCenterX, enemyCenterX);
                 }
 
                 enemy.X += enemy.HorizontalVelocity;
@@ -3817,6 +3821,7 @@ namespace TaskbarRPG
         private void DamageEnemy(SpawnedEnemy enemy, int damage)
         {
             if (!enemy.IsAlive) return;
+            enemy.IsAggroLocked = true;
             enemy.CurrentHealth -= damage;
             if (enemy.CurrentHealth <= 0)
                 KillEnemy(enemy);
