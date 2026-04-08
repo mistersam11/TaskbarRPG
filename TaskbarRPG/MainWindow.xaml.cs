@@ -797,6 +797,10 @@ namespace TaskbarRPG
         public double MaxDistance;
         public double VerticalVelocity;
         public double GravityPerFrame;
+        public double InitialGravityMultiplier;
+        public int GravityRampFrames;
+        public int GravityDelayFrames;
+        public int AgeFrames;
         public int Damage;
         public bool IsAlive = true;
     }
@@ -3018,7 +3022,7 @@ namespace TaskbarRPG
                         foreach (var bow in GenerateShopWeapons(WeaponCategory.Bow, 2))
                             shop.Stock.Add(new ShopListing { Item = bow, Quantity = 1, Price = bow.BasePrice });
                         var arrow = ItemFactory.CreateArrowItem();
-                        shop.Stock.Add(new ShopListing { Item = arrow, Quantity = 5, Price = 5 });
+                        shop.Stock.Add(new ShopListing { Item = arrow, Quantity = 5, Price = 50 });
                         break;
 
                     case ShopType.Healing:
@@ -3965,8 +3969,9 @@ namespace TaskbarRPG
             double damageScale = 0.65 + (chargeRatio * 2.35) + (Math.Pow(chargeRatio, 2.0) * 1.5);
             int damage = Math.Max(1, (int)Math.Round((playerData.BaseDamage + playerData.EquippedBow.Damage) * damageScale));
             double speedScale = 0.8 + (chargeRatio * 1.0);
-            double minRange = Math.Max(120, Width * 0.12);
-            double maxRange = Math.Max(minRange + 40, Width * 0.85);
+            const double HorizontalRangeMultiplier = 3.0;
+            double minRange = Math.Max(120, Width * 0.12) * HorizontalRangeMultiplier;
+            double maxRange = Math.Max(minRange + 40, (Width * 0.85) * HorizontalRangeMultiplier);
             bool isMaxCharge = chargeRatio >= 0.98;
             List<BitmapImage> arrowFramesToUse = isMaxCharge ? playerArrowMaxFrames : playerArrowFrames;
 
@@ -4000,14 +4005,17 @@ namespace TaskbarRPG
 
             double startX = facingRight ? playerX + playerWidth + 2 : playerX - body.Width;
             double startY = playerY + (playerHeight / 2) - (body.Height / 2);
-            const double MaxChargeRangeMultiplier = 4.0;
+            const double MaxChargeRangeMultiplier = 1.55;
             const double ChargeRangeCurvePower = 3.0;
             double boostedMaxRange = maxRange * MaxChargeRangeMultiplier;
             double chargeRangeRatio = Math.Pow(chargeRatio, ChargeRangeCurvePower);
             double maxDistance = minRange + ((boostedMaxRange - minRange) * chargeRangeRatio);
-            // Keep trajectory low enough to hit grounded enemies while extending horizontal travel.
-            double launchLift = -(0.12 + (chargeRatio * 0.62));
-            double projectileGravity = gravity * (1.35 - (chargeRatio * 0.48));
+            // Keep trajectory low so arrows don't sail over grounded enemies.
+            double launchLift = -(0.05 + (chargeRatio * 0.22));
+            double projectileGravity = gravity * (0.75 - (chargeRatio * 0.12));
+            double initialGravityMultiplier = 0.1;
+            int gravityDelayFrames = 6;
+            int gravityRampFrames = 18;
 
             activeProjectiles.Add(new ArrowProjectile
             {
@@ -4022,6 +4030,10 @@ namespace TaskbarRPG
                 DistanceTraveled = 0,
                 VerticalVelocity = launchLift,
                 GravityPerFrame = projectileGravity,
+                InitialGravityMultiplier = initialGravityMultiplier,
+                GravityDelayFrames = gravityDelayFrames,
+                GravityRampFrames = gravityRampFrames,
+                AgeFrames = 0,
                 Damage = damage,
                 IsAlive = true
             });
@@ -4038,7 +4050,23 @@ namespace TaskbarRPG
                 double move = arrow.Speed * arrow.Direction;
                 arrow.X += move;
                 arrow.DistanceTraveled += Math.Abs(move);
-                arrow.VerticalVelocity += arrow.GravityPerFrame;
+                arrow.AgeFrames++;
+                double gravityScale;
+                if (arrow.AgeFrames <= arrow.GravityDelayFrames)
+                {
+                    gravityScale = arrow.InitialGravityMultiplier;
+                }
+                else if (arrow.GravityRampFrames <= 0)
+                {
+                    gravityScale = 1.0;
+                }
+                else
+                {
+                    double rampProgress = (double)(arrow.AgeFrames - arrow.GravityDelayFrames) / arrow.GravityRampFrames;
+                    gravityScale = arrow.InitialGravityMultiplier + ((1.0 - arrow.InitialGravityMultiplier) * Math.Clamp(rampProgress, 0.0, 1.0));
+                }
+
+                arrow.VerticalVelocity += arrow.GravityPerFrame * gravityScale;
                 arrow.Y += arrow.VerticalVelocity;
 
                 if (arrow.DistanceTraveled >= arrow.MaxDistance)
