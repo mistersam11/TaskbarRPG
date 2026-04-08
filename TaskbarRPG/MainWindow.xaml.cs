@@ -3690,7 +3690,7 @@ namespace TaskbarRPG
                     if (isWolf && enemy.IsGrounded)
                     {
                         // Tiny pounce arc for wolves: quick lift + immediate forward drive.
-                        enemy.VerticalVelocity = Math.Min(enemy.VerticalVelocity, -1.55);
+                        enemy.VerticalVelocity = Math.Min(enemy.VerticalVelocity, -6.55);
                         enemy.HorizontalVelocity = enemy.LockedAttackDirection * enemy.Speed * (inAttackRange ? 3.6 : 3.0);
                         enemy.IsGrounded = false;
                     }
