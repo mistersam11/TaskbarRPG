@@ -1,8 +1,9 @@
-# name;health;attackdamage;movespeed;level;biomes;stages
+# name;health;attackdamage;movespeed;level;biomes;stages;width(optional);height(optional);attackhitboxwidth(optional);attackhitboxheight(optional)
 # biomes: optional comma list (plains,cave,forest,tundra) or *
 # stages: optional comma list/ranges (e.g. 1-4,8,12-14) or *
-slime;10;4;0.9;1;plains;
-bat;9;5;1.4;2;cave;
-wolf;14;6;1.2;4;forest;
-crawler;18;8;1.1;6;cave;6-9
-frostling;22;10;1.0;8;tundra;6-9
+# width/height are world collision size and draw height (sprite width keeps aspect ratio automatically)
+slime;10;4;0.9;1;plains;;16;28;18;16
+bat;9;5;1.4;2;cave;;20;16;18;10
+wolf;14;6;1.2;4;forest;;28;16;24;10
+crawler;18;8;1.1;6;cave;6-9;24;18;22;12
+frostling;22;10;1.0;8;tundra;6-9;20;30;22;16

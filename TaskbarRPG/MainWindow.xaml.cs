@@ -258,6 +258,8 @@ namespace TaskbarRPG
         public Color Color { get; set; } = Colors.Purple;
         public double Width { get; set; } = 18;
         public double Height { get; set; } = 24;
+        public double AttackHitboxWidth { get; set; } = 24;
+        public double AttackHitboxHeight { get; set; } = 14;
     }
 
     public class EnemyTemplate
@@ -267,6 +269,10 @@ namespace TaskbarRPG
         public int AttackDamage { get; set; } = 4;
         public double MoveSpeed { get; set; } = 1.0;
         public int Level { get; set; } = 1;
+        public double Width { get; set; } = 20;
+        public double Height { get; set; } = 24;
+        public double AttackHitboxWidth { get; set; } = 24;
+        public double AttackHitboxHeight { get; set; } = 14;
         public HashSet<BiomeType>? AllowedBiomes { get; set; } = null;
         public List<(int Min, int Max)> StageRanges { get; set; } = new();
 
@@ -454,6 +460,10 @@ namespace TaskbarRPG
                     XpReward = Math.Max(4, 6 + (enemyLevel * 2)),
                     GoldMin = Math.Max(1, enemyLevel / 2),
                     GoldMax = Math.Max(2, enemyLevel + 2),
+                    Width = Math.Max(10, chosen.Width),
+                    Height = Math.Max(10, chosen.Height),
+                    AttackHitboxWidth = Math.Max(8, chosen.AttackHitboxWidth),
+                    AttackHitboxHeight = Math.Max(6, chosen.AttackHitboxHeight),
                     Color = Color.FromRgb(
                         (byte)rng.Next(70, 210),
                         (byte)rng.Next(70, 210),
@@ -517,6 +527,8 @@ namespace TaskbarRPG
                 GoldMax = 20 + power * 2,
                 Width = Math.Max(24, template.Width),
                 Height = Math.Max(24, template.Height),
+                AttackHitboxWidth = Math.Max(20, template.Width * 0.85),
+                AttackHitboxHeight = Math.Max(16, template.Height * 0.45),
                 Color = Color.FromRgb(180, 60, 70),
             };
 
@@ -751,6 +763,7 @@ namespace TaskbarRPG
         public int Direction = 1;
         public bool IsAlive = true;
         public int CurrentHealth;
+        public double CurrentSpriteWidth;
     }
 
     public class ArrowProjectile
@@ -1295,11 +1308,12 @@ namespace TaskbarRPG
             if (!System.IO.File.Exists(defsPath))
             {
                 string seed =
-                    "slime;10;4;0.9;1;plains;\n" +
-                    "bat;9;5;1.4;2;cave;\n" +
-                    "wolf;14;6;1.2;4;forest;\n" +
-                    "crawler;18;8;1.1;6;cave;6-9\n" +
-                    "frostling;22;10;1.0;8;tundra;6-9";
+                    "# name;health;attackdamage;movespeed;level;biomes;stages;width(optional);height(optional);attackhitboxwidth(optional);attackhitboxheight(optional)\n" +
+                    "slime;10;4;0.9;1;plains;;16;28;18;16\n" +
+                    "bat;9;5;1.4;2;cave;;20;16;18;10\n" +
+                    "wolf;14;6;1.2;4;forest;;28;16;24;10\n" +
+                    "crawler;18;8;1.1;6;cave;6-9;24;18;22;12\n" +
+                    "frostling;22;10;1.0;8;tundra;6-9;20;30;22;16";
                 System.IO.File.WriteAllText(defsPath, seed);
             }
 
@@ -1322,7 +1336,7 @@ namespace TaskbarRPG
                     Health = hp,
                     AttackDamage = atk,
                     MoveSpeed = speed,
-                    Level = level
+                    Level = level,
                 };
 
                 if (parts.Length >= 6 && !string.IsNullOrWhiteSpace(parts[5]))
@@ -1357,6 +1371,21 @@ namespace TaskbarRPG
                             template.StageRanges.Add((Math.Min(min, max), Math.Max(min, max)));
                     }
                 }
+
+                if (parts.Length >= 8 && double.TryParse(parts[7], out double parsedWidth))
+                    template.Width = Math.Max(10, parsedWidth);
+
+                if (parts.Length >= 9 && double.TryParse(parts[8], out double parsedHeight))
+                    template.Height = Math.Max(10, parsedHeight);
+
+                if (parts.Length >= 10 && double.TryParse(parts[9], out double parsedAttackWidth))
+                    template.AttackHitboxWidth = Math.Max(6, parsedAttackWidth);
+
+                if (parts.Length >= 11 && double.TryParse(parts[10], out double parsedAttackHeight))
+                    template.AttackHitboxHeight = Math.Max(6, parsedAttackHeight);
+
+                template.AttackHitboxWidth = Math.Max(6, template.AttackHitboxWidth);
+                template.AttackHitboxHeight = Math.Max(6, template.AttackHitboxHeight);
 
                 enemyTemplates.Add(template);
             }
@@ -3188,8 +3217,8 @@ namespace TaskbarRPG
 
                 var attackHitbox = new Rectangle
                 {
-                    Width = def.Width * 2,
-                    Height = Math.Max(8, def.Height * 0.65),
+                    Width = def.AttackHitboxWidth,
+                    Height = def.AttackHitboxHeight,
                     Fill = gameConfig.Debug ? new SolidColorBrush(Color.FromArgb(80, 255, 70, 70)) : Brushes.Transparent,
                     Stroke = gameConfig.Debug ? Brushes.OrangeRed : null,
                     StrokeThickness = gameConfig.Debug ? 1 : 0
@@ -3227,7 +3256,8 @@ namespace TaskbarRPG
                     Speed = def.Speed,
                     Direction = 1,
                     IsAlive = true,
-                    CurrentHealth = def.MaxHealth
+                    CurrentHealth = def.MaxHealth,
+                    CurrentSpriteWidth = def.Width
                 });
             }
         }
@@ -3252,7 +3282,7 @@ namespace TaskbarRPG
                 if (!enemy.IsAlive) continue;
 
                 double playerCenterX = playerX + playerWidth / 2;
-                double enemyCenterX = enemy.X + enemy.Body.Width / 2;
+                double enemyCenterX = enemy.X + enemy.Definition.Width / 2;
                 double distance = Math.Abs(playerCenterX - enemyCenterX);
 
                 bool inAggroRange = distance <= enemy.Definition.AggroRange;
@@ -3332,6 +3362,7 @@ namespace TaskbarRPG
                 }
 
                 enemy.Body.Width = spriteWidth;
+                enemy.CurrentSpriteWidth = spriteWidth;
                 Canvas.SetLeft(enemy.Body, drawX);
                 Canvas.SetTop(enemy.Body, enemy.Y);
 
@@ -3353,10 +3384,14 @@ namespace TaskbarRPG
                 Canvas.SetLeft(enemy.HealthFill, enemy.X - 5);
                 Canvas.SetTop(enemy.HealthFill, enemy.Y - 22);
 
+                double spriteAttackReach = Math.Max(0, spriteWidth - enemy.Definition.Width);
+                enemy.AttackHitbox.Width = Math.Max(enemy.Definition.AttackHitboxWidth, spriteAttackReach + (enemy.Definition.Width * 0.4));
+                enemy.AttackHitbox.Height = Math.Max(enemy.Definition.AttackHitboxHeight, enemy.Definition.Height * 0.45);
+
                 double hitboxX = enemy.Direction >= 0
                     ? enemy.X + enemy.Definition.Width - 2
                     : enemy.X - enemy.AttackHitbox.Width + 2;
-                double hitboxY = enemy.Y + 6;
+                double hitboxY = enemy.Y + enemy.Definition.Height - enemy.AttackHitbox.Height - 2;
                 Canvas.SetLeft(enemy.AttackHitbox, hitboxX);
                 Canvas.SetTop(enemy.AttackHitbox, hitboxY);
             }
@@ -3483,7 +3518,7 @@ namespace TaskbarRPG
             foreach (var enemy in activeEnemies.ToList())
             {
                 if (!enemy.IsAlive) continue;
-                Rect enemyRect = new Rect(enemy.X, enemy.Y, enemy.Body.Width, enemy.Body.Height);
+                Rect enemyRect = GetEnemyCollisionRect(enemy);
                 if (attackRect.IntersectsWith(enemyRect))
                     DamageEnemy(enemy, damage);
             }
@@ -3593,7 +3628,7 @@ namespace TaskbarRPG
                 foreach (var enemy in activeEnemies.ToList())
                 {
                     if (!enemy.IsAlive) continue;
-                    Rect enemyRect = new Rect(enemy.X, enemy.Y, enemy.Body.Width, enemy.Body.Height);
+                    Rect enemyRect = GetEnemyCollisionRect(enemy);
                     if (arrowRect.IntersectsWith(enemyRect))
                     {
                         DamageEnemy(enemy, arrow.Damage);
@@ -3809,6 +3844,13 @@ namespace TaskbarRPG
             double hitboxX = playerX + ((playerWidth - hitboxW) / 2.0);
             double hitboxY = playerY + (playerHeight - hitboxH);
             return new Rect(hitboxX, hitboxY, hitboxW, hitboxH);
+        }
+
+        private Rect GetEnemyCollisionRect(SpawnedEnemy enemy)
+        {
+            double hitboxW = Math.Max(6, enemy.Definition.Width);
+            double hitboxH = Math.Max(6, enemy.Definition.Height);
+            return new Rect(enemy.X, enemy.Y, hitboxW, hitboxH);
         }
 
         // -----------------------------------------------------------------------
