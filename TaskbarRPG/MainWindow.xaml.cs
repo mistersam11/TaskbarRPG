@@ -3599,9 +3599,9 @@ namespace TaskbarRPG
             }
         }
 
-        private void UpdateMeleeChaserEnemy(SpawnedEnemy enemy, bool inAggroRange, bool inAttackRange, double playerCenterX, double enemyCenterX)
+        private void UpdateMeleeChaserEnemy(SpawnedEnemy enemy, bool hasAggro, bool inAttackRange, double playerCenterX, double enemyCenterX)
         {
-            if (inAggroRange)
+            if (hasAggro)
             {
                 enemy.Direction = playerCenterX >= enemyCenterX ? 1 : -1;
 
@@ -3620,25 +3620,25 @@ namespace TaskbarRPG
                 else if (enemy.X >= enemy.RightBound) enemy.Direction = -1;
             }
 
-            if (!enemy.IsAttacking && (!inAggroRange || !inAttackRange))
+            if (!enemy.IsAttacking && (!hasAggro || !inAttackRange))
                 enemy.X += enemy.Speed * enemy.Direction;
         }
 
-        private void UpdateHopContactEnemy(SpawnedEnemy enemy, bool inAggroRange, double playerCenterX)
+        private void UpdateHopContactEnemy(SpawnedEnemy enemy, bool hasAggro, double playerCenterX)
         {
             bool isSlime = enemy.Definition.Name.Equals("slime", StringComparison.OrdinalIgnoreCase);
 
             if (enemy.BehaviorTimerFrames > 0)
                 enemy.BehaviorTimerFrames--;
 
-            if (inAggroRange)
+            if (hasAggro)
                 enemy.Direction = playerCenterX >= enemy.X ? 1 : -1;
 
             if (enemy.IsGrounded && enemy.BehaviorTimerFrames <= 0)
             {
-                if (!inAggroRange)
+                if (!hasAggro)
                 {
-                    // Wander hops: choose a random direction if player isn't in aggro range.
+                    // Wander hops: choose a random direction until the enemy has aggro.
                     bool nearLeftBound = enemy.X <= enemy.LeftBound + 8;
                     bool nearRightBound = enemy.X >= enemy.RightBound - 8;
                     if (nearLeftBound) enemy.Direction = 1;
@@ -3648,7 +3648,7 @@ namespace TaskbarRPG
 
                 double hopJumpMultiplier = isSlime ? 0.68 : 1.05;
                 enemy.VerticalVelocity = gameConfig.JumpStrength * hopJumpMultiplier;
-                double hopSpeedBoost = inAggroRange
+                double hopSpeedBoost = hasAggro
                     ? 3.0
                     : (1.15 + (rng.NextDouble() * 0.95));
                 enemy.HorizontalVelocity = enemy.Direction * enemy.Speed * hopSpeedBoost;
@@ -3660,13 +3660,13 @@ namespace TaskbarRPG
             }
         }
 
-        private void UpdateDashStrikeEnemy(SpawnedEnemy enemy, bool inAggroRange, bool inAttackRange, double playerCenterX, double enemyCenterX)
+        private void UpdateDashStrikeEnemy(SpawnedEnemy enemy, bool hasAggro, bool inAttackRange, double playerCenterX, double enemyCenterX)
         {
             if (enemy.HasLockedAttackDirection)
             {
                 enemy.Direction = enemy.LockedAttackDirection;
             }
-            else if (inAggroRange)
+            else if (hasAggro)
                 enemy.Direction = playerCenterX >= enemyCenterX ? 1 : -1;
             else
             {
@@ -3674,7 +3674,7 @@ namespace TaskbarRPG
                 else if (enemy.X >= enemy.RightBound) enemy.Direction = -1;
             }
 
-            if (!enemy.IsAttacking && !enemy.IsTelegraphing && enemy.AttackCooldownFrames <= 0 && inAggroRange)
+            if (!enemy.IsAttacking && !enemy.IsTelegraphing && enemy.AttackCooldownFrames <= 0 && hasAggro && inAttackRange)
             {
                 enemy.LockedAttackDirection = playerCenterX >= enemyCenterX ? 1 : -1;
                 enemy.HasLockedAttackDirection = true;
@@ -3737,7 +3737,7 @@ namespace TaskbarRPG
                 return;
             }
 
-            if (inAggroRange)
+            if (hasAggro)
                 enemy.X += enemy.Speed * enemy.Direction * 0.75;
             else
                 enemy.X += enemy.Speed * enemy.Direction * 0.45;
