@@ -1197,6 +1197,8 @@ namespace TaskbarRPG
         private bool isAttacking = false;
         private int attackFramesRemaining = 0;
         private int attackDurationFrames = 8;
+        private const double SwordKnockbackSpeed = 1.65;
+        private const double SwordKnockbackLift = -0.45;
         private int meleeCooldownFrames = 0;
         private int bowCooldownFrames = 0;
         private bool isBowCharging = false;
@@ -3883,7 +3885,26 @@ namespace TaskbarRPG
                 if (!enemy.IsAlive) continue;
                 Rect enemyRect = GetEnemyCollisionRect(enemy);
                 if (attackRect.IntersectsWith(enemyRect))
+                {
                     DamageEnemy(enemy, damage);
+                    ApplySwordKnockback(enemy);
+                }
+            }
+        }
+
+        private void ApplySwordKnockback(SpawnedEnemy enemy)
+        {
+            double playerCenterX = playerX + (playerWidth / 2.0);
+            double enemyCenterX = enemy.X + (enemy.Definition.Width / 2.0);
+            double knockbackDirection = enemyCenterX >= playerCenterX ? 1.0 : -1.0;
+
+            enemy.HorizontalVelocity += knockbackDirection * SwordKnockbackSpeed;
+            enemy.Direction = knockbackDirection >= 0 ? 1 : -1;
+
+            if (enemy.IsGrounded)
+            {
+                enemy.VerticalVelocity = Math.Min(enemy.VerticalVelocity, SwordKnockbackLift);
+                enemy.IsGrounded = false;
             }
         }
 
