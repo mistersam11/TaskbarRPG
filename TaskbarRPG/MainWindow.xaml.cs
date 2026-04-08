@@ -3447,7 +3447,9 @@ namespace TaskbarRPG
                 double distance = Math.Abs(playerCenterX - enemyCenterX);
 
                 bool inAggroRange = distance <= enemy.Definition.AggroRange;
-                double attackReach = Math.Max(20, enemy.Definition.AttackHitboxWidth + (enemy.Definition.Width * 0.25));
+                // Enemy damage now comes from direct body contact (no dedicated enemy attack hitbox),
+                // so "attack range" should be driven by body size plus a small anticipation buffer.
+                double attackReach = Math.Max(16, enemy.Definition.Width * 0.7);
                 bool inAttackRange = distance <= attackReach;
 
                 UpdateEnemyBehaviorSelection(enemy);
@@ -3666,8 +3668,17 @@ namespace TaskbarRPG
                     enemy.IsAttacking = true;
                     enemy.Direction = enemy.LockedAttackDirection;
                     enemy.AttackDamageApplied = false;
-                    enemy.AttackFramesRemaining = inAttackRange ? 14 : 18;
+                    bool isWolf = enemy.Definition.Name.Equals("wolf", StringComparison.OrdinalIgnoreCase);
+                    enemy.AttackFramesRemaining = isWolf
+                        ? (inAttackRange ? 18 : 22)
+                        : (inAttackRange ? 14 : 18);
                     enemy.AttackCooldownFrames = Math.Max(14, enemy.Definition.BehaviorIntervalFrames);
+                    if (isWolf && enemy.IsGrounded)
+                    {
+                        // Tiny pounce arc for wolves: quick lift, but low enough to avoid going over the player.
+                        enemy.VerticalVelocity = Math.Min(enemy.VerticalVelocity, -2.15);
+                        enemy.IsGrounded = false;
+                    }
                 }
                 return;
             }
@@ -3677,7 +3688,10 @@ namespace TaskbarRPG
                 if (enemy.AttackFramesRemaining > 8)
                     return;
 
-                double dashSpeed = enemy.Speed * (inAttackRange ? 4.2 : 3.4);
+                bool isWolf = enemy.Definition.Name.Equals("wolf", StringComparison.OrdinalIgnoreCase);
+                double dashSpeed = isWolf
+                    ? enemy.Speed * (inAttackRange ? 5.8 : 5.0)
+                    : enemy.Speed * (inAttackRange ? 4.2 : 3.4);
                 enemy.X += enemy.LockedAttackDirection * dashSpeed;
                 return;
             }
@@ -3736,16 +3750,8 @@ namespace TaskbarRPG
                 Canvas.SetLeft(enemy.HealthFill, enemy.X - 5);
                 Canvas.SetTop(enemy.HealthFill, enemy.Y - 22);
 
-                double spriteAttackReach = Math.Max(0, spriteWidth - enemy.Definition.Width);
-                enemy.AttackHitbox.Width = Math.Max(enemy.Definition.AttackHitboxWidth, spriteAttackReach + (enemy.Definition.Width * 0.4));
-                enemy.AttackHitbox.Height = Math.Max(enemy.Definition.AttackHitboxHeight, enemy.Definition.Height * 0.45);
-
-                double hitboxX = enemy.Direction >= 0
-                    ? enemy.X + enemy.Definition.Width - 2
-                    : enemy.X - enemy.AttackHitbox.Width + 2;
-                double hitboxY = enemy.Y + enemy.Definition.Height - enemy.AttackHitbox.Height - 2;
-                Canvas.SetLeft(enemy.AttackHitbox, hitboxX);
-                Canvas.SetTop(enemy.AttackHitbox, hitboxY);
+                // Kept only for debug visualization compatibility; enemy combat no longer uses this hitbox.
+                enemy.AttackHitbox.Visibility = Visibility.Hidden;
             }
         }
 
@@ -3759,45 +3765,14 @@ namespace TaskbarRPG
             {
                 if (!enemy.IsAlive) continue;
 
-                if (enemy.CurrentBehaviorId == "hop_contact")
+                Rect enemyRect = GetEnemyCollisionRect(enemy);
+                if (playerRect.IntersectsWith(enemyRect))
                 {
-                    Rect enemyRect = GetEnemyCollisionRect(enemy);
-                    if (playerRect.IntersectsWith(enemyRect))
-                    {
-                        playerData.Health = Math.Max(0, playerData.Health - enemy.Definition.ContactDamage);
-                        playerDamageCooldownFrames = PlayerDamageCooldownMax;
-                        ShowStatus($"{enemy.Definition.Name} crashes into you!", 35);
-                        break;
-                    }
-                    continue;
-                }
-
-                if (enemy.IsAttacking && !enemy.AttackDamageApplied)
-                {
-                    Rect attackRect = new Rect(
-                        Canvas.GetLeft(enemy.AttackHitbox),
-                        Canvas.GetTop(enemy.AttackHitbox),
-                        enemy.AttackHitbox.Width,
-                        enemy.AttackHitbox.Height);
-
-                    if (playerRect.IntersectsWith(attackRect))
-                    {
-                        playerData.Health = Math.Max(0, playerData.Health - enemy.Definition.ContactDamage);
-                        playerDamageCooldownFrames = PlayerDamageCooldownMax;
-                        enemy.AttackDamageApplied = true;
-                        ShowStatus($"{enemy.Definition.Name} attacks!", 35);
-                        break;
-                    }
-
-                    Rect enemyRect = GetEnemyCollisionRect(enemy);
-                    if (playerRect.IntersectsWith(enemyRect))
-                    {
-                        playerData.Health = Math.Max(0, playerData.Health - enemy.Definition.ContactDamage);
-                        playerDamageCooldownFrames = PlayerDamageCooldownMax;
-                        enemy.AttackDamageApplied = true;
-                        ShowStatus($"{enemy.Definition.Name} attacks!", 35);
-                        break;
-                    }
+                    playerData.Health = Math.Max(0, playerData.Health - enemy.Definition.ContactDamage);
+                    playerDamageCooldownFrames = PlayerDamageCooldownMax;
+                    enemy.AttackDamageApplied = true;
+                    ShowStatus($"{enemy.Definition.Name} hits you!", 35);
+                    break;
                 }
             }
         }
@@ -4030,9 +4005,9 @@ namespace TaskbarRPG
             double boostedMaxRange = maxRange * MaxChargeRangeMultiplier;
             double chargeRangeRatio = Math.Pow(chargeRatio, ChargeRangeCurvePower);
             double maxDistance = minRange + ((boostedMaxRange - minRange) * chargeRangeRatio);
-            // Keep a visible arc, but flatten full-charge shots so arrows don't sail over grounded enemies.
-            double launchLift = -(0.2 + (chargeRatio * 1.1));
-            double projectileGravity = gravity * (1.9 - (chargeRatio * 0.95));
+            // Keep trajectory low enough to hit grounded enemies while extending horizontal travel.
+            double launchLift = -(0.12 + (chargeRatio * 0.62));
+            double projectileGravity = gravity * (1.35 - (chargeRatio * 0.48));
 
             activeProjectiles.Add(new ArrowProjectile
             {
