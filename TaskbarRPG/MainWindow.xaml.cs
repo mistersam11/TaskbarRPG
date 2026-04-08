@@ -3478,7 +3478,7 @@ namespace TaskbarRPG
                 }
                 else if (enemy.CurrentBehaviorId == "dash_strike")
                 {
-                    UpdateDashStrikeEnemy(enemy, hasAggro, inAttackRange, playerCenterX, enemyCenterX);
+                    UpdateDashStrikeEnemy(enemy, hasAggro, inAggroRange, inAttackRange, playerCenterX, enemyCenterX);
                 }
                 else
                 {
@@ -3660,7 +3660,7 @@ namespace TaskbarRPG
             }
         }
 
-        private void UpdateDashStrikeEnemy(SpawnedEnemy enemy, bool hasAggro, bool inAttackRange, double playerCenterX, double enemyCenterX)
+        private void UpdateDashStrikeEnemy(SpawnedEnemy enemy, bool hasAggro, bool inAggroRange, bool inAttackRange, double playerCenterX, double enemyCenterX)
         {
             if (enemy.HasLockedAttackDirection)
             {
@@ -3674,7 +3674,7 @@ namespace TaskbarRPG
                 else if (enemy.X >= enemy.RightBound) enemy.Direction = -1;
             }
 
-            if (!enemy.IsAttacking && !enemy.IsTelegraphing && enemy.AttackCooldownFrames <= 0 && hasAggro && inAttackRange)
+            if (!enemy.IsAttacking && !enemy.IsTelegraphing && enemy.AttackCooldownFrames <= 0 && hasAggro && inAggroRange)
             {
                 enemy.LockedAttackDirection = playerCenterX >= enemyCenterX ? 1 : -1;
                 enemy.HasLockedAttackDirection = true;
