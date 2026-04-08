@@ -766,6 +766,8 @@ namespace TaskbarRPG
         public bool AttackDamageApplied = false;
         public bool IsTelegraphing = false;
         public int TelegraphFramesRemaining = 0;
+        public bool HasLockedAttackDirection = false;
+        public int LockedAttackDirection = 1;
         public string CurrentBehaviorId = "melee_chaser";
         public int BehaviorCycleFrames = 0;
         public int BehaviorTimerFrames = 0;
@@ -3500,7 +3502,10 @@ namespace TaskbarRPG
                 {
                     enemy.AttackFramesRemaining--;
                     if (enemy.AttackFramesRemaining <= 0)
+                    {
                         enemy.IsAttacking = false;
+                        enemy.HasLockedAttackDirection = false;
+                    }
                 }
 
                 if (enemy.BodySprite != null)
@@ -3579,6 +3584,7 @@ namespace TaskbarRPG
                 enemy.TelegraphFramesRemaining = 0;
                 enemy.IsAttacking = false;
                 enemy.AttackFramesRemaining = 0;
+                enemy.HasLockedAttackDirection = false;
             }
         }
 
@@ -3627,28 +3633,35 @@ namespace TaskbarRPG
                     else enemy.Direction = rng.NextDouble() < 0.5 ? -1 : 1;
                 }
 
-                enemy.VerticalVelocity = gameConfig.JumpStrength * 0.8;
+                enemy.VerticalVelocity = gameConfig.JumpStrength * 0.9;
                 double hopSpeedBoost = inAggroRange
-                    ? 2.2
-                    : (0.7 + (rng.NextDouble() * 0.7));
+                    ? 2.45
+                    : (0.85 + (rng.NextDouble() * 0.7));
                 enemy.HorizontalVelocity = enemy.Direction * enemy.Speed * hopSpeedBoost;
-                enemy.BehaviorTimerFrames = Math.Max(20, enemy.Definition.BehaviorIntervalFrames + rng.Next(-15, 16));
+                enemy.BehaviorTimerFrames = Math.Max(14, enemy.Definition.BehaviorIntervalFrames - 6 + rng.Next(-12, 13));
                 enemy.IsAttacking = false;
             }
         }
 
         private void UpdateDashStrikeEnemy(SpawnedEnemy enemy, bool inAggroRange, bool inAttackRange, double playerCenterX, double enemyCenterX)
         {
-            if (inAggroRange)
+            if (enemy.HasLockedAttackDirection)
+            {
+                enemy.Direction = enemy.LockedAttackDirection;
+            }
+            else if (inAggroRange)
                 enemy.Direction = playerCenterX >= enemyCenterX ? 1 : -1;
             else
             {
-                    if (enemy.X <= enemy.LeftBound) enemy.Direction = 1;
+                if (enemy.X <= enemy.LeftBound) enemy.Direction = 1;
                 else if (enemy.X >= enemy.RightBound) enemy.Direction = -1;
             }
 
             if (!enemy.IsAttacking && !enemy.IsTelegraphing && enemy.AttackCooldownFrames <= 0 && inAggroRange)
             {
+                enemy.LockedAttackDirection = playerCenterX >= enemyCenterX ? 1 : -1;
+                enemy.HasLockedAttackDirection = true;
+                enemy.Direction = enemy.LockedAttackDirection;
                 enemy.IsTelegraphing = true;
                 enemy.TelegraphFramesRemaining = 14;
             }
@@ -3660,6 +3673,7 @@ namespace TaskbarRPG
                 {
                     enemy.IsTelegraphing = false;
                     enemy.IsAttacking = true;
+                    enemy.Direction = enemy.LockedAttackDirection;
                     enemy.AttackDamageApplied = false;
                     enemy.AttackFramesRemaining = inAttackRange ? 14 : 18;
                     enemy.AttackCooldownFrames = Math.Max(14, enemy.Definition.BehaviorIntervalFrames);
@@ -3673,7 +3687,7 @@ namespace TaskbarRPG
                     return;
 
                 double dashSpeed = enemy.Speed * (inAttackRange ? 4.2 : 3.4);
-                enemy.X += enemy.Direction * dashSpeed;
+                enemy.X += enemy.LockedAttackDirection * dashSpeed;
                 return;
             }
 
@@ -3776,6 +3790,16 @@ namespace TaskbarRPG
                         enemy.AttackHitbox.Height);
 
                     if (playerRect.IntersectsWith(attackRect))
+                    {
+                        playerData.Health = Math.Max(0, playerData.Health - enemy.Definition.ContactDamage);
+                        playerDamageCooldownFrames = PlayerDamageCooldownMax;
+                        enemy.AttackDamageApplied = true;
+                        ShowStatus($"{enemy.Definition.Name} attacks!", 35);
+                        break;
+                    }
+
+                    Rect enemyRect = GetEnemyCollisionRect(enemy);
+                    if (playerRect.IntersectsWith(enemyRect))
                     {
                         playerData.Health = Math.Max(0, playerData.Health - enemy.Definition.ContactDamage);
                         playerDamageCooldownFrames = PlayerDamageCooldownMax;
