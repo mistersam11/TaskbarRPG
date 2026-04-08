@@ -21,9 +21,8 @@ Common keys:
 - `AttackPosition` - melee hitbox forward offset.
 - `PlayerHitboxWidth`, `PlayerHitboxHeight` - player collision size.
 - `MoveSpeed`, `Gravity`, `JumpStrength` - movement tuning.
-- `ArrowHitboxWidth`, `ArrowHitboxHeight` - projectile collision size.
-- `ArrowSpeed` - projectile travel speed.
-- `ArrowDurationFrames` - projectile lifetime in frames.
+
+Arrow projectile tuning is no longer part of `gameconfig.json`; arrow speed/hitbox behavior is now controlled by in-code constants.
 
 ## Enemy definitions (`enemy_definitions.txt`)
 
@@ -121,7 +120,7 @@ Player animations support any number of frames using `player_<action><index>.png
 - `F8` toggle game on/off.
 - `ESC` opens system menu (or closes it if already open).
 - `C` closes whichever panel/menu is currently open (does not open the system menu).
-- Hold `X` to draw the bow (up to 2 seconds), release to fire. More charge = much higher damage/range and flatter trajectory; low-charge arrows drop quickly, max-charge arrows can travel most of the area width.
+- Hold `X` to draw the bow (up to 2 seconds), release to fire. More charge = much higher damage/range and flatter trajectory; low-charge arrows drop quickly, while fully charged arrows travel dramatically farther.
 - While system/reset menus are open:
   - `1` Save
   - `2` Save + Exit
