@@ -3470,7 +3470,7 @@ namespace TaskbarRPG
                 double attackReach = Math.Max(16, enemy.Definition.Width * 0.7);
                 bool inAttackRange = distance <= attackReach;
 
-                UpdateEnemyBehaviorSelection(enemy);
+                UpdateEnemyBehaviorSelection(enemy, inAttackRange);
 
                 if (enemy.CurrentBehaviorId == "hop_contact")
                 {
@@ -3488,8 +3488,10 @@ namespace TaskbarRPG
                 enemy.X += enemy.HorizontalVelocity;
                 enemy.X = Math.Max(0, Math.Min(Width - enemy.Definition.Width, enemy.X));
 
+                bool isGooBoss = enemy.Definition.Name.Equals("The Goo", StringComparison.OrdinalIgnoreCase);
                 double floorY = groundY + playerHeight - enemy.Body.Height;
-                enemy.VerticalVelocity += gameConfig.Gravity;
+                double enemyGravity = isGooBoss ? gameConfig.Gravity * 1.35 : gameConfig.Gravity;
+                enemy.VerticalVelocity += enemyGravity;
                 enemy.Y += enemy.VerticalVelocity;
                 if (enemy.Y >= floorY)
                 {
@@ -3569,7 +3571,7 @@ namespace TaskbarRPG
             return enemy.WalkFrames;
         }
 
-        private void UpdateEnemyBehaviorSelection(SpawnedEnemy enemy)
+        private void UpdateEnemyBehaviorSelection(SpawnedEnemy enemy, bool inAttackRange)
         {
             if (enemy.Definition.BehaviorIds.Count == 0)
             {
@@ -3581,6 +3583,17 @@ namespace TaskbarRPG
             {
                 enemy.CurrentBehaviorId = enemy.Definition.BehaviorIds[0];
                 return;
+            }
+
+            bool isGooBoss = enemy.Definition.Name.Equals("The Goo", StringComparison.OrdinalIgnoreCase);
+            if (isGooBoss && inAttackRange && !enemy.IsAttacking && !enemy.IsTelegraphing)
+            {
+                bool hasDashStrike = enemy.Definition.BehaviorIds.Any(id => id.Equals("dash_strike", StringComparison.OrdinalIgnoreCase));
+                bool hasHopContact = enemy.Definition.BehaviorIds.Any(id => id.Equals("hop_contact", StringComparison.OrdinalIgnoreCase));
+                if (hasDashStrike && hasHopContact)
+                {
+                    enemy.CurrentBehaviorId = rng.NextDouble() < 0.5 ? "dash_strike" : "hop_contact";
+                }
             }
 
             if (enemy.BehaviorCycleFrames > 0)
@@ -3627,6 +3640,7 @@ namespace TaskbarRPG
         private void UpdateHopContactEnemy(SpawnedEnemy enemy, bool hasAggro, double playerCenterX)
         {
             bool isSlime = enemy.Definition.Name.Equals("slime", StringComparison.OrdinalIgnoreCase);
+            bool isGooBoss = enemy.Definition.Name.Equals("The Goo", StringComparison.OrdinalIgnoreCase);
 
             if (enemy.BehaviorTimerFrames > 0)
                 enemy.BehaviorTimerFrames--;
@@ -3647,14 +3661,23 @@ namespace TaskbarRPG
                 }
 
                 double hopJumpMultiplier = isSlime ? 0.68 : 1.05;
+                if (isGooBoss)
+                {
+                    // Increase gravity + launch speed together so apex height stays about the same.
+                    hopJumpMultiplier *= Math.Sqrt(1.35);
+                }
                 enemy.VerticalVelocity = gameConfig.JumpStrength * hopJumpMultiplier;
                 double hopSpeedBoost = hasAggro
                     ? 3.0
                     : (1.15 + (rng.NextDouble() * 0.95));
+                if (isGooBoss)
+                    hopSpeedBoost *= hasAggro ? 1.55 : 1.35;
                 enemy.HorizontalVelocity = enemy.Direction * enemy.Speed * hopSpeedBoost;
                 int hopIntervalFrames = isSlime
                     ? (int)Math.Round(enemy.Definition.BehaviorIntervalFrames * 0.74)
                     : enemy.Definition.BehaviorIntervalFrames;
+                if (isGooBoss)
+                    hopIntervalFrames = (int)Math.Round(hopIntervalFrames * 0.66);
                 enemy.BehaviorTimerFrames = Math.Max(10, hopIntervalFrames - 14 + rng.Next(-10, 11));
                 enemy.IsAttacking = false;
             }
@@ -3662,6 +3685,8 @@ namespace TaskbarRPG
 
         private void UpdateDashStrikeEnemy(SpawnedEnemy enemy, bool hasAggro, bool inAggroRange, bool inAttackRange, double playerCenterX, double enemyCenterX)
         {
+            bool isGooBoss = enemy.Definition.Name.Equals("The Goo", StringComparison.OrdinalIgnoreCase);
+
             if (enemy.HasLockedAttackDirection)
             {
                 enemy.Direction = enemy.LockedAttackDirection;
@@ -3674,13 +3699,18 @@ namespace TaskbarRPG
                 else if (enemy.X >= enemy.RightBound) enemy.Direction = -1;
             }
 
-            if (!enemy.IsAttacking && !enemy.IsTelegraphing && enemy.AttackCooldownFrames <= 0 && hasAggro && inAggroRange)
+            bool canStartDash = !enemy.IsAttacking &&
+                                !enemy.IsTelegraphing &&
+                                enemy.AttackCooldownFrames <= 0 &&
+                                hasAggro &&
+                                (isGooBoss || inAggroRange);
+            if (canStartDash)
             {
                 enemy.LockedAttackDirection = playerCenterX >= enemyCenterX ? 1 : -1;
                 enemy.HasLockedAttackDirection = true;
                 enemy.Direction = enemy.LockedAttackDirection;
                 enemy.IsTelegraphing = true;
-                enemy.TelegraphFramesRemaining = 14;
+                enemy.TelegraphFramesRemaining = isGooBoss ? 20 : 14;
             }
 
             if (enemy.IsTelegraphing)
@@ -3693,9 +3723,21 @@ namespace TaskbarRPG
                     enemy.Direction = enemy.LockedAttackDirection;
                     enemy.AttackDamageApplied = false;
                     bool isWolf = enemy.Definition.Name.Equals("wolf", StringComparison.OrdinalIgnoreCase);
-                    enemy.AttackFramesRemaining = isWolf
-                        ? (inAttackRange ? 18 : 22)
-                        : (inAttackRange ? 14 : 18);
+                    if (isGooBoss)
+                    {
+                        double wallTargetX = enemy.LockedAttackDirection > 0
+                            ? Width - enemy.Definition.Width
+                            : 0;
+                        double distanceToWall = Math.Abs(wallTargetX - enemy.X);
+                        double gooDashSpeed = Math.Max(enemy.Speed * 6.8, 7.8);
+                        enemy.AttackFramesRemaining = Math.Max(16, (int)Math.Ceiling(distanceToWall / gooDashSpeed) + 4);
+                    }
+                    else
+                    {
+                        enemy.AttackFramesRemaining = isWolf
+                            ? (inAttackRange ? 18 : 22)
+                            : (inAttackRange ? 14 : 18);
+                    }
                     int wolfCooldownBonusFrames = isWolf ? 24 : 0;
                     enemy.AttackCooldownFrames = Math.Max(14, enemy.Definition.BehaviorIntervalFrames + wolfCooldownBonusFrames);
                     if (isWolf && enemy.IsGrounded)
@@ -3711,6 +3753,23 @@ namespace TaskbarRPG
 
             if (enemy.IsAttacking)
             {
+                if (isGooBoss)
+                {
+                    double gooDashSpeed = Math.Max(enemy.Speed * 6.8, 7.8);
+                    enemy.HorizontalVelocity = enemy.LockedAttackDirection * gooDashSpeed;
+
+                    bool reachedRightWall = enemy.LockedAttackDirection > 0 && enemy.X >= Width - enemy.Definition.Width - 1;
+                    bool reachedLeftWall = enemy.LockedAttackDirection < 0 && enemy.X <= 1;
+                    if (reachedLeftWall || reachedRightWall)
+                    {
+                        enemy.IsAttacking = false;
+                        enemy.AttackFramesRemaining = 0;
+                        enemy.HasLockedAttackDirection = false;
+                        enemy.HorizontalVelocity = 0;
+                    }
+                    return;
+                }
+
                 bool isWolf = enemy.Definition.Name.Equals("wolf", StringComparison.OrdinalIgnoreCase);
                 if (isWolf)
                 {
@@ -3812,6 +3871,16 @@ namespace TaskbarRPG
                     playerData.Health = Math.Max(0, playerData.Health - enemy.Definition.ContactDamage);
                     playerDamageCooldownFrames = PlayerDamageCooldownMax;
                     enemy.AttackDamageApplied = true;
+                    if (enemy.Definition.Name.Equals("The Goo", StringComparison.OrdinalIgnoreCase) &&
+                        enemy.CurrentBehaviorId.Equals("dash_strike", StringComparison.OrdinalIgnoreCase))
+                    {
+                        enemy.IsAttacking = false;
+                        enemy.IsTelegraphing = false;
+                        enemy.AttackFramesRemaining = 0;
+                        enemy.TelegraphFramesRemaining = 0;
+                        enemy.HasLockedAttackDirection = false;
+                        enemy.HorizontalVelocity = 0;
+                    }
                     ShowStatus($"{enemy.Definition.Name} hits you!", 35);
                     break;
                 }
