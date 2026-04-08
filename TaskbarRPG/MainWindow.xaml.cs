@@ -763,9 +763,12 @@ namespace TaskbarRPG
         public int AttackFramesRemaining = 0;
         public int AttackCooldownFrames = 0;
         public bool AttackDamageApplied = false;
+        public bool IsTelegraphing = false;
+        public int TelegraphFramesRemaining = 0;
         public string CurrentBehaviorId = "melee_chaser";
         public int BehaviorCycleFrames = 0;
         public int BehaviorTimerFrames = 0;
+        public double HorizontalVelocity = 0;
         public double VerticalVelocity = 0;
         public bool IsGrounded = true;
         public TextBlock Label = null!;
@@ -3371,6 +3374,7 @@ namespace TaskbarRPG
                     CurrentBehaviorId = SelectBehavior(def.BehaviorIds),
                     BehaviorCycleFrames = rng.Next(90, 181),
                     BehaviorTimerFrames = rng.Next(0, Math.Max(1, def.BehaviorIntervalFrames)),
+                    HorizontalVelocity = 0,
                     VerticalVelocity = 0,
                     IsGrounded = true,
                     Direction = 1,
@@ -3423,6 +3427,7 @@ namespace TaskbarRPG
                     UpdateMeleeChaserEnemy(enemy, inAggroRange, inAttackRange, playerCenterX, enemyCenterX);
                 }
 
+                enemy.X += enemy.HorizontalVelocity;
                 enemy.X = Math.Max(0, Math.Min(Width - enemy.Definition.Width, enemy.X));
 
                 double floorY = groundY + playerHeight - enemy.Body.Height;
@@ -3433,10 +3438,14 @@ namespace TaskbarRPG
                     enemy.Y = floorY;
                     enemy.VerticalVelocity = 0;
                     enemy.IsGrounded = true;
+                    enemy.HorizontalVelocity *= 0.6;
+                    if (Math.Abs(enemy.HorizontalVelocity) < 0.05)
+                        enemy.HorizontalVelocity = 0;
                 }
                 else
                 {
                     enemy.IsGrounded = false;
+                    enemy.HorizontalVelocity *= 0.985;
                 }
 
                 if (enemy.AttackCooldownFrames > 0)
@@ -3509,6 +3518,8 @@ namespace TaskbarRPG
                 enemy.CurrentBehaviorId = SelectBehavior(enemy.Definition.BehaviorIds, enemy.CurrentBehaviorId);
                 enemy.BehaviorCycleFrames = rng.Next(90, 181);
                 enemy.BehaviorTimerFrames = rng.Next(0, Math.Max(1, enemy.Definition.BehaviorIntervalFrames));
+                enemy.IsTelegraphing = false;
+                enemy.TelegraphFramesRemaining = 0;
                 enemy.IsAttacking = false;
                 enemy.AttackFramesRemaining = 0;
             }
@@ -3546,14 +3557,24 @@ namespace TaskbarRPG
 
             if (inAggroRange)
                 enemy.Direction = playerCenterX >= enemy.X ? 1 : -1;
-            else if (enemy.X <= enemy.LeftBound) enemy.Direction = 1;
-            else if (enemy.X >= enemy.RightBound) enemy.Direction = -1;
 
             if (enemy.IsGrounded && enemy.BehaviorTimerFrames <= 0)
             {
+                if (!inAggroRange)
+                {
+                    // Wander hops: choose a random direction if player isn't in aggro range.
+                    bool nearLeftBound = enemy.X <= enemy.LeftBound + 8;
+                    bool nearRightBound = enemy.X >= enemy.RightBound - 8;
+                    if (nearLeftBound) enemy.Direction = 1;
+                    else if (nearRightBound) enemy.Direction = -1;
+                    else enemy.Direction = rng.NextDouble() < 0.5 ? -1 : 1;
+                }
+
                 enemy.VerticalVelocity = gameConfig.JumpStrength * 0.8;
-                double hopSpeedBoost = inAggroRange ? 1.8 : 0.8;
-                enemy.X += enemy.Direction * enemy.Speed * hopSpeedBoost * 12;
+                double hopSpeedBoost = inAggroRange
+                    ? 2.2
+                    : (0.7 + (rng.NextDouble() * 0.7));
+                enemy.HorizontalVelocity = enemy.Direction * enemy.Speed * hopSpeedBoost;
                 enemy.BehaviorTimerFrames = Math.Max(20, enemy.Definition.BehaviorIntervalFrames + rng.Next(-15, 16));
                 enemy.IsAttacking = false;
             }
@@ -3565,16 +3586,28 @@ namespace TaskbarRPG
                 enemy.Direction = playerCenterX >= enemyCenterX ? 1 : -1;
             else
             {
-                if (enemy.X <= enemy.LeftBound) enemy.Direction = 1;
+                    if (enemy.X <= enemy.LeftBound) enemy.Direction = 1;
                 else if (enemy.X >= enemy.RightBound) enemy.Direction = -1;
             }
 
-            if (!enemy.IsAttacking && enemy.AttackCooldownFrames <= 0 && inAggroRange)
+            if (!enemy.IsAttacking && !enemy.IsTelegraphing && enemy.AttackCooldownFrames <= 0 && inAggroRange)
             {
-                enemy.IsAttacking = true;
-                enemy.AttackDamageApplied = false;
-                enemy.AttackFramesRemaining = inAttackRange ? 14 : 18;
-                enemy.AttackCooldownFrames = Math.Max(14, enemy.Definition.BehaviorIntervalFrames);
+                enemy.IsTelegraphing = true;
+                enemy.TelegraphFramesRemaining = 14;
+            }
+
+            if (enemy.IsTelegraphing)
+            {
+                enemy.TelegraphFramesRemaining--;
+                if (enemy.TelegraphFramesRemaining <= 0)
+                {
+                    enemy.IsTelegraphing = false;
+                    enemy.IsAttacking = true;
+                    enemy.AttackDamageApplied = false;
+                    enemy.AttackFramesRemaining = inAttackRange ? 14 : 18;
+                    enemy.AttackCooldownFrames = Math.Max(14, enemy.Definition.BehaviorIntervalFrames);
+                }
+                return;
             }
 
             if (enemy.IsAttacking)
@@ -3617,6 +3650,9 @@ namespace TaskbarRPG
 
                 enemy.Body.Width = spriteWidth;
                 enemy.CurrentSpriteWidth = spriteWidth;
+                enemy.Body.Opacity = enemy.IsTelegraphing
+                    ? (((animationFrameCounter / 3) % 2 == 0) ? 0.55 : 1.0)
+                    : 1.0;
                 Canvas.SetLeft(enemy.Body, drawX);
                 Canvas.SetTop(enemy.Body, enemy.Y);
 
