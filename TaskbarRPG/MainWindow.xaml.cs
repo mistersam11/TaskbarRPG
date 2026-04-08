@@ -1191,7 +1191,7 @@ namespace TaskbarRPG
         private bool isBowCharging = false;
         private int bowChargeFrames = 0;
         private bool bowChargeFullNotified = false;
-        private const int BowChargeMaxFrames = 120;
+        private const int BowChargeMaxFrames = 72;
 
         private SpawnedZoneVisual? currentInteractableZone = null;
         private ShopZoneContent? activeShop = null;
@@ -4030,8 +4030,9 @@ namespace TaskbarRPG
             double boostedMaxRange = maxRange * MaxChargeRangeMultiplier;
             double chargeRangeRatio = Math.Pow(chargeRatio, ChargeRangeCurvePower);
             double maxDistance = minRange + ((boostedMaxRange - minRange) * chargeRangeRatio);
-            double launchLift = -(0.6 + (chargeRatio * 3.2));
-            double projectileGravity = gravity * (1.5 - (chargeRatio * 1.25));
+            // Keep a visible arc, but flatten full-charge shots so arrows don't sail over grounded enemies.
+            double launchLift = -(0.2 + (chargeRatio * 1.1));
+            double projectileGravity = gravity * (1.9 - (chargeRatio * 0.95));
 
             activeProjectiles.Add(new ArrowProjectile
             {
