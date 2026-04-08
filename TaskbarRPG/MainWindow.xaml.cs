@@ -3713,10 +3713,8 @@ namespace TaskbarRPG
                 if (enemy.AttackFramesRemaining > 8)
                     return;
 
-                double dashSpeed = isWolf
-                    ? enemy.Speed * (inAttackRange ? 5.8 : 5.0)
-                    : enemy.Speed * (inAttackRange ? 4.2 : 3.4);
-                enemy.X += enemy.LockedAttackDirection * dashSpeed;
+                double groundDashSpeed = enemy.Speed * (inAttackRange ? 4.2 : 3.4);
+                enemy.X += enemy.LockedAttackDirection * groundDashSpeed;
                 return;
             }
 
