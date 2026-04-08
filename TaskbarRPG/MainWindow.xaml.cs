@@ -3022,7 +3022,7 @@ namespace TaskbarRPG
                         foreach (var bow in GenerateShopWeapons(WeaponCategory.Bow, 2))
                             shop.Stock.Add(new ShopListing { Item = bow, Quantity = 1, Price = bow.BasePrice });
                         var arrow = ItemFactory.CreateArrowItem();
-                        shop.Stock.Add(new ShopListing { Item = arrow, Quantity = 5, Price = 5 });
+                        shop.Stock.Add(new ShopListing { Item = arrow, Quantity = 5, Price = 50 });
                         break;
 
                     case ShopType.Healing:
