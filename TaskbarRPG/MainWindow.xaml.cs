@@ -245,6 +245,8 @@ namespace TaskbarRPG
     public class EnemyDefinition
     {
         public string Name { get; set; } = "Enemy";
+        public List<string> BehaviorIds { get; set; } = new() { "melee_chaser" };
+        public int BehaviorIntervalFrames { get; set; } = 42;
         public int PowerLevel { get; set; } = 1;
         public double X { get; set; }
         public double PatrolRange { get; set; } = 80;
@@ -265,6 +267,8 @@ namespace TaskbarRPG
     public class EnemyTemplate
     {
         public string Name { get; set; } = "Enemy";
+        public List<string> BehaviorIds { get; set; } = new() { "melee_chaser" };
+        public int BehaviorIntervalFrames { get; set; } = 42;
         public int Health { get; set; } = 10;
         public int AttackDamage { get; set; } = 4;
         public double MoveSpeed { get; set; } = 1.0;
@@ -297,6 +301,8 @@ namespace TaskbarRPG
         public double MoveSpeed { get; set; } = 1.15;
         public double Width { get; set; } = 64;
         public double Height { get; set; } = 64;
+        public List<string> BehaviorIds { get; set; } = new() { "melee_chaser" };
+        public int BehaviorIntervalFrames { get; set; } = 40;
     }
 
     public class AreaTemplate
@@ -329,9 +335,9 @@ namespace TaskbarRPG
     {
         private static readonly List<BossTemplate> defaultBossTemplates = new()
         {
-            new BossTemplate { Name = "The Goo", Health = 80, AttackDamage = 15, MoveSpeed = 1.05, Width = 64, Height = 64 },
-            new BossTemplate { Name = "Fallen Knight", Health = 105, AttackDamage = 19, MoveSpeed = 1.2, Width = 64, Height = 64 },
-            new BossTemplate { Name = "DB-5000", Health = 130, AttackDamage = 24, MoveSpeed = 1.1, Width = 72, Height = 64 },
+            new BossTemplate { Name = "The Goo", Health = 80, AttackDamage = 15, MoveSpeed = 1.05, Width = 64, Height = 64, BehaviorIds = new() { "hop_contact", "dash_strike" }, BehaviorIntervalFrames = 42 },
+            new BossTemplate { Name = "Fallen Knight", Health = 105, AttackDamage = 19, MoveSpeed = 1.2, Width = 64, Height = 64, BehaviorIds = new() { "dash_strike", "melee_chaser" }, BehaviorIntervalFrames = 34 },
+            new BossTemplate { Name = "DB-5000", Health = 130, AttackDamage = 24, MoveSpeed = 1.1, Width = 72, Height = 64, BehaviorIds = new() { "melee_chaser" }, BehaviorIntervalFrames = 30 },
         };
 
         private static readonly List<BossTemplate> bossTemplates = new();
@@ -450,6 +456,8 @@ namespace TaskbarRPG
                 spawns.Add(new EnemyDefinition
                 {
                     Name = chosen.Name,
+                    BehaviorIds = chosen.BehaviorIds.Count > 0 ? chosen.BehaviorIds.ToList() : new List<string> { "melee_chaser" },
+                    BehaviorIntervalFrames = chosen.BehaviorIntervalFrames,
                     PowerLevel = enemyLevel,
                     X = 160 + (i * spacing) + rng.Next(-25, 26),
                     PatrolRange = 90 + rng.Next(0, 70),
@@ -515,6 +523,8 @@ namespace TaskbarRPG
             var boss = new EnemyDefinition
             {
                 Name = template.Name,
+                BehaviorIds = template.BehaviorIds.Count > 0 ? template.BehaviorIds.ToList() : new List<string> { "melee_chaser" },
+                BehaviorIntervalFrames = template.BehaviorIntervalFrames,
                 PowerLevel = Math.Max(1, stage + 2),
                 X = 820,
                 PatrolRange = 170,
@@ -747,11 +757,20 @@ namespace TaskbarRPG
         public Image? BodySprite = null;
         public List<BitmapImage> WalkFrames { get; set; } = new();
         public List<BitmapImage> AttackFrames { get; set; } = new();
+        public Dictionary<string, List<BitmapImage>> BehaviorAttackFrames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public Rectangle AttackHitbox = null!;
         public bool IsAttacking = false;
         public int AttackFramesRemaining = 0;
         public int AttackCooldownFrames = 0;
         public bool AttackDamageApplied = false;
+        public bool IsTelegraphing = false;
+        public int TelegraphFramesRemaining = 0;
+        public string CurrentBehaviorId = "melee_chaser";
+        public int BehaviorCycleFrames = 0;
+        public int BehaviorTimerFrames = 0;
+        public double HorizontalVelocity = 0;
+        public double VerticalVelocity = 0;
+        public bool IsGrounded = true;
         public TextBlock Label = null!;
         public Rectangle HealthBg = null!;
         public Rectangle HealthFill = null!;
@@ -769,12 +788,16 @@ namespace TaskbarRPG
     public class ArrowProjectile
     {
         public FrameworkElement Body = null!;
+        public List<BitmapImage> Frames { get; set; } = new();
+        public int AnimationFrameCounter;
         public double X;
         public double Y;
         public int Direction;
         public double Speed;
         public double DistanceTraveled;
         public double MaxDistance;
+        public double VerticalVelocity;
+        public double GravityPerFrame;
         public int Damage;
         public bool IsAlive = true;
     }
@@ -887,6 +910,7 @@ namespace TaskbarRPG
         private bool meleeHeld = false;
         private bool fireHeld = false;
         private bool closeHeld = false;
+        private bool escapeHeld = false;
         private bool fastTravelHeld = false;
         private bool statsHeld = false;
         private bool mapHeld = false;
@@ -899,6 +923,7 @@ namespace TaskbarRPG
         private bool meleeHeldLastFrame = false;
         private bool fireHeldLastFrame = false;
         private bool closeHeldLastFrame = false;
+        private bool escapeHeldLastFrame = false;
         private bool fastTravelHeldLastFrame = false;
         private bool statsHeldLastFrame = false;
         private bool mapHeldLastFrame = false;
@@ -928,6 +953,12 @@ namespace TaskbarRPG
         private List<BitmapImage> playerAttackFrames = new();
         private List<BitmapImage> playerJumpFrames = new();
         private List<BitmapImage> playerDamagedFrames = new();
+        private List<BitmapImage> playerBowCharge1Frames = new();
+        private List<BitmapImage> playerBowCharge2Frames = new();
+        private List<BitmapImage> playerBowCharge3Frames = new();
+        private List<BitmapImage> playerBowFullFrames = new();
+        private List<BitmapImage> playerArrowFrames = new();
+        private List<BitmapImage> playerArrowMaxFrames = new();
         private BitmapImage? playerArrowSprite = null;
 
         private void UpdateNpcAnimations()
@@ -1002,6 +1033,24 @@ namespace TaskbarRPG
                 return bossFrames;
 
             return LoadFramesFromDirectory(IOPath.Combine(AppContext.BaseDirectory, "Assets", "Enemy"), normalized, action);
+        }
+
+        private List<BitmapImage> LoadEnemyBehaviorAttackFrames(string enemyName, string behaviorId)
+        {
+            string normalizedBehavior = behaviorId.Trim().ToLowerInvariant();
+            var behaviorFrames = LoadEnemyFrames(enemyName, $"{normalizedBehavior}_attack");
+            if (behaviorFrames.Count > 0)
+                return behaviorFrames;
+
+            if (normalizedBehavior.EndsWith("_strike", StringComparison.OrdinalIgnoreCase))
+            {
+                string shortBehavior = normalizedBehavior[..^"_strike".Length];
+                behaviorFrames = LoadEnemyFrames(enemyName, $"{shortBehavior}_attack");
+                if (behaviorFrames.Count > 0)
+                    return behaviorFrames;
+            }
+
+            return LoadEnemyFrames(enemyName, "attack");
         }
 
         private List<BitmapImage> LoadFramesFromDirectory(string dir, string normalizedName, string action)
@@ -1131,6 +1180,10 @@ namespace TaskbarRPG
         private int attackDurationFrames = 8;
         private int meleeCooldownFrames = 0;
         private int bowCooldownFrames = 0;
+        private bool isBowCharging = false;
+        private int bowChargeFrames = 0;
+        private bool bowChargeFullNotified = false;
+        private const int BowChargeMaxFrames = 120;
 
         private SpawnedZoneVisual? currentInteractableZone = null;
         private ShopZoneContent? activeShop = null;
@@ -1177,7 +1230,17 @@ namespace TaskbarRPG
             playerAttackFrames = LoadPlayerAnimationFrames("attack", "Assets/Player/player_attack.png");
             playerJumpFrames = LoadPlayerAnimationFrames("jump");
             playerDamagedFrames = LoadPlayerAnimationFrames("damaged");
+            playerBowCharge1Frames = LoadPlayerAnimationFrames("bow_charge1");
+            playerBowCharge2Frames = LoadPlayerAnimationFrames("bow_charge2");
+            playerBowCharge3Frames = LoadPlayerAnimationFrames("bow_charge3");
+            playerBowFullFrames = LoadPlayerAnimationFrames("bow_full");
+            playerArrowFrames = LoadPlayerAnimationFrames("arrow");
+            playerArrowMaxFrames = LoadPlayerAnimationFrames("arrow_max");
             playerArrowSprite = LoadOptionalPlayerSpriteFromDisk("arrow.png");
+            if (playerArrowFrames.Count == 0 && playerArrowSprite != null)
+                playerArrowFrames.Add(playerArrowSprite);
+            if (playerArrowMaxFrames.Count == 0)
+                playerArrowMaxFrames = playerArrowFrames.ToList();
 
             CreatePlayer();
             SetupTransition();
@@ -1308,12 +1371,12 @@ namespace TaskbarRPG
             if (!System.IO.File.Exists(defsPath))
             {
                 string seed =
-                    "# name;health;attackdamage;movespeed;level;biomes;stages;width(optional);height(optional);attackhitboxwidth(optional);attackhitboxheight(optional)\n" +
-                    "slime;10;4;0.9;1;plains;;16;28;18;16\n" +
-                    "bat;9;5;1.4;2;cave;;20;16;18;10\n" +
-                    "wolf;14;6;1.2;4;forest;;28;16;24;10\n" +
-                    "crawler;18;8;1.1;6;cave;6-9;24;18;22;12\n" +
-                    "frostling;22;10;1.0;8;tundra;6-9;20;30;22;16";
+                    "# name;health;attackdamage;movespeed;level;biomes;stages;width(optional);height(optional);attackhitboxwidth(optional);attackhitboxheight(optional);behavior(optional);behaviorintervalframes(optional)\n" +
+                    "slime;10;4;0.9;1;plains;;16;28;18;16;hop_contact;135\n" +
+                    "bat;9;5;1.4;2;cave;;20;16;18;10;melee_chaser;38\n" +
+                    "wolf;14;6;1.2;4;forest;;28;16;24;10;dash_strike;32\n" +
+                    "crawler;18;8;1.1;6;cave;6-9;24;18;22;12;melee_chaser;34\n" +
+                    "frostling;22;10;1.0;8;tundra;6-9;20;30;22;16;melee_chaser;36";
                 System.IO.File.WriteAllText(defsPath, seed);
             }
 
@@ -1384,8 +1447,26 @@ namespace TaskbarRPG
                 if (parts.Length >= 11 && double.TryParse(parts[10], out double parsedAttackHeight))
                     template.AttackHitboxHeight = Math.Max(6, parsedAttackHeight);
 
+                if (parts.Length >= 12 && !string.IsNullOrWhiteSpace(parts[11]))
+                {
+                    var parsedBehaviors = parts[11]
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .Select(b => b.Trim().ToLowerInvariant())
+                        .Where(b => b.Length > 0)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+                    if (parsedBehaviors.Count > 0)
+                        template.BehaviorIds = parsedBehaviors;
+                }
+
+                if (parts.Length >= 13 && int.TryParse(parts[12], out int parsedIntervalFrames))
+                    template.BehaviorIntervalFrames = Math.Max(8, parsedIntervalFrames);
+
                 template.AttackHitboxWidth = Math.Max(6, template.AttackHitboxWidth);
                 template.AttackHitboxHeight = Math.Max(6, template.AttackHitboxHeight);
+                template.BehaviorIntervalFrames = Math.Max(8, template.BehaviorIntervalFrames);
+                if (template.BehaviorIds.Count == 0)
+                    template.BehaviorIds = new List<string> { "melee_chaser" };
 
                 enemyTemplates.Add(template);
             }
@@ -1399,10 +1480,10 @@ namespace TaskbarRPG
             if (!System.IO.File.Exists(path))
             {
                 string seed =
-                    "# name;health;attackdamage;movespeed;width(optional);height(optional)\n" +
-                    "The Goo;80;15;1.05;64;64\n" +
-                    "Fallen Knight;105;19;1.20;64;64\n" +
-                    "DB-5000;130;24;1.10;72;64";
+                    "# name;health;attackdamage;movespeed;width(optional);height(optional);behaviors(optional);behaviorintervalframes(optional)\n" +
+                    "The Goo;80;15;1.05;64;64;hop_contact,dash_strike;42\n" +
+                    "Fallen Knight;105;19;1.20;64;64;dash_strike,melee_chaser;34\n" +
+                    "DB-5000;130;24;1.10;72;64;melee_chaser;30";
                 System.IO.File.WriteAllText(path, seed);
             }
 
@@ -1424,6 +1505,23 @@ namespace TaskbarRPG
                 if (parts.Length >= 6 && double.TryParse(parts[5], out double parsedHeight))
                     height = parsedHeight;
 
+                var behaviorIds = new List<string> { "melee_chaser" };
+                if (parts.Length >= 7 && !string.IsNullOrWhiteSpace(parts[6]))
+                {
+                    var parsedBehaviors = parts[6]
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .Select(b => b.Trim().ToLowerInvariant())
+                        .Where(b => b.Length > 0)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+                    if (parsedBehaviors.Count > 0)
+                        behaviorIds = parsedBehaviors;
+                }
+
+                int behaviorIntervalFrames = 40;
+                if (parts.Length >= 8 && int.TryParse(parts[7], out int parsedInterval))
+                    behaviorIntervalFrames = Math.Max(8, parsedInterval);
+
                 bossTemplates.Add(new BossTemplate
                 {
                     Name = parts[0].Trim(),
@@ -1431,7 +1529,9 @@ namespace TaskbarRPG
                     AttackDamage = Math.Max(2, attackDamage),
                     MoveSpeed = Math.Max(0.4, moveSpeed),
                     Width = Math.Max(24, width),
-                    Height = Math.Max(24, height)
+                    Height = Math.Max(24, height),
+                    BehaviorIds = behaviorIds,
+                    BehaviorIntervalFrames = behaviorIntervalFrames
                 });
             }
 
@@ -1747,10 +1847,8 @@ namespace TaskbarRPG
                     jumpHeld = isDown; break;
                 case VK_Z: meleeHeld = isDown; break;
                 case VK_X: fireHeld = isDown; break;
-                case VK_C:
-                case VK_ESCAPE:
-                    closeHeld = isDown;
-                    break;
+                case VK_C: closeHeld = isDown; break;
+                case VK_ESCAPE: escapeHeld = isDown; break;
                 case VK_F: fastTravelHeld = isDown; break;
                 case VK_E: statsHeld = isDown; break;
                 case VK_M: mapHeld = isDown; break;
@@ -1803,11 +1901,12 @@ namespace TaskbarRPG
 
         private void ResetHeldInputs()
         {
+            CancelBowCharge();
             leftHeld = rightHeld = jumpHeld = meleeHeld = fireHeld =
-            closeHeld = fastTravelHeld = statsHeld = mapHeld = potionHeld = false;
+            closeHeld = escapeHeld = fastTravelHeld = statsHeld = mapHeld = potionHeld = false;
 
             jumpHeldLastFrame = meleeHeldLastFrame = fireHeldLastFrame =
-            closeHeldLastFrame = fastTravelHeldLastFrame = statsHeldLastFrame =
+            closeHeldLastFrame = escapeHeldLastFrame = fastTravelHeldLastFrame = statsHeldLastFrame =
             mapHeldLastFrame = potionHeldLastFrame = false;
 
             for (int i = 0; i < numberHeld.Length; i++)
@@ -2259,7 +2358,9 @@ namespace TaskbarRPG
             bool jumpPressedThisFrame = jumpHeld && !jumpHeldLastFrame;
             bool meleePressedThisFrame = meleeHeld && !meleeHeldLastFrame;
             bool firePressedThisFrame = fireHeld && !fireHeldLastFrame;
+            bool fireReleasedThisFrame = !fireHeld && fireHeldLastFrame;
             bool closePressedThisFrame = closeHeld && !closeHeldLastFrame;
+            bool escapePressedThisFrame = escapeHeld && !escapeHeldLastFrame;
             bool fastPressedThisFrame = fastTravelHeld && !fastTravelHeldLastFrame;
             bool statsPressedThisFrame = statsHeld && !statsHeldLastFrame;
             bool mapPressedThisFrame = mapHeld && !mapHeldLastFrame;
@@ -2268,11 +2369,12 @@ namespace TaskbarRPG
             if (!controlsEnabled)
             {
                 velocityX = 0;
+                CancelBowCharge();
                 CacheLastFrameInput();
                 return;
             }
 
-            if (closePressedThisFrame)
+            if (escapePressedThisFrame)
             {
                 if (panelMode == PanelMode.SystemMenu || panelMode == PanelMode.ResetConfirm)
                 {
@@ -2287,6 +2389,19 @@ namespace TaskbarRPG
                 CacheLastFrameInput();
                 return;
             }
+
+            if (closePressedThisFrame)
+            {
+                if (panelMode != PanelMode.None)
+                {
+                    CloseAllPanels();
+                    CacheLastFrameInput();
+                    return;
+                }
+            }
+
+            if (panelMode != PanelMode.None && isBowCharging)
+                CancelBowCharge();
 
             if (fastPressedThisFrame) { TogglePanel(PanelMode.FastTravel); CacheLastFrameInput(); return; }
             if (statsPressedThisFrame) { TogglePanel(PanelMode.Stats); CacheLastFrameInput(); return; }
@@ -2360,13 +2475,10 @@ namespace TaskbarRPG
                     StartMeleeAttack();
             }
 
-            if (firePressedThisFrame && panelMode == PanelMode.None)
-            {
-                if (bowCooldownFrames <= 0)
-                    FireBow();
-                else
-                    ShowStatus($"Bow cooling down ({bowCooldownFrames})", 25);
-            }
+            if (panelMode == PanelMode.None)
+                UpdateBowChargeInput(firePressedThisFrame, fireReleasedThisFrame);
+            else if (isBowCharging)
+                CancelBowCharge();
 
             CacheLastFrameInput();
         }
@@ -2377,6 +2489,7 @@ namespace TaskbarRPG
             meleeHeldLastFrame = meleeHeld;
             fireHeldLastFrame = fireHeld;
             closeHeldLastFrame = closeHeld;
+            escapeHeldLastFrame = escapeHeld;
             fastTravelHeldLastFrame = fastTravelHeld;
             statsHeldLastFrame = statsHeld;
             mapHeldLastFrame = mapHeld;
@@ -3157,6 +3270,9 @@ namespace TaskbarRPG
             {
                 var walkFrames = LoadEnemyFrames(def.Name, "walk");
                 var attackFrames = LoadEnemyFrames(def.Name, "attack");
+                var behaviorAttackFrames = new Dictionary<string, List<BitmapImage>>(StringComparer.OrdinalIgnoreCase);
+                foreach (string behaviorId in def.BehaviorIds.Distinct(StringComparer.OrdinalIgnoreCase))
+                    behaviorAttackFrames[behaviorId] = LoadEnemyBehaviorAttackFrames(def.Name, behaviorId);
 
                 FrameworkElement body;
                 Image? bodySprite = null;
@@ -3245,6 +3361,7 @@ namespace TaskbarRPG
                     BodySprite = bodySprite,
                     WalkFrames = walkFrames,
                     AttackFrames = attackFrames,
+                    BehaviorAttackFrames = behaviorAttackFrames,
                     AttackHitbox = attackHitbox,
                     Label = label,
                     HealthBg = healthBg,
@@ -3254,6 +3371,12 @@ namespace TaskbarRPG
                     LeftBound = Math.Max(10, def.X - def.PatrolRange),
                     RightBound = Math.Min(Width - def.Width - 10, def.X + def.PatrolRange),
                     Speed = def.Speed,
+                    CurrentBehaviorId = SelectBehavior(def.BehaviorIds),
+                    BehaviorCycleFrames = rng.Next(90, 181),
+                    BehaviorTimerFrames = rng.Next(0, Math.Max(1, def.BehaviorIntervalFrames)),
+                    HorizontalVelocity = 0,
+                    VerticalVelocity = 0,
+                    IsGrounded = true,
                     Direction = 1,
                     IsAlive = true,
                     CurrentHealth = def.MaxHealth,
@@ -3286,33 +3409,44 @@ namespace TaskbarRPG
                 double distance = Math.Abs(playerCenterX - enemyCenterX);
 
                 bool inAggroRange = distance <= enemy.Definition.AggroRange;
-                bool inAttackRange = distance <= Math.Max(36, enemy.Definition.Width + 20);
+                double attackReach = Math.Max(20, enemy.Definition.AttackHitboxWidth + (enemy.Definition.Width * 0.25));
+                bool inAttackRange = distance <= attackReach;
 
-                if (inAggroRange)
+                UpdateEnemyBehaviorSelection(enemy);
+
+                if (enemy.CurrentBehaviorId == "hop_contact")
                 {
-                    // Chase the player
-                    enemy.Direction = playerCenterX >= enemyCenterX ? 1 : -1;
-
-                    if (!enemy.IsAttacking && enemy.AttackCooldownFrames <= 0 && inAttackRange)
-                    {
-                        enemy.IsAttacking = true;
-                        enemy.AttackFramesRemaining = Math.Max(10, enemy.AttackFrames.Count * 8);
-                        enemy.AttackDamageApplied = false;
-                        enemy.AttackCooldownFrames = 38;
-                    }
+                    UpdateHopContactEnemy(enemy, inAggroRange, playerCenterX);
+                }
+                else if (enemy.CurrentBehaviorId == "dash_strike")
+                {
+                    UpdateDashStrikeEnemy(enemy, inAggroRange, inAttackRange, playerCenterX, enemyCenterX);
                 }
                 else
                 {
-                    // Patrol — reverse at bounds
-                    if (enemy.X <= enemy.LeftBound) enemy.Direction = 1;
-                    else if (enemy.X >= enemy.RightBound) enemy.Direction = -1;
+                    UpdateMeleeChaserEnemy(enemy, inAggroRange, inAttackRange, playerCenterX, enemyCenterX);
                 }
 
-                if (!enemy.IsAttacking && (!inAggroRange || !inAttackRange))
-                    enemy.X += enemy.Speed * enemy.Direction;
-
+                enemy.X += enemy.HorizontalVelocity;
                 enemy.X = Math.Max(0, Math.Min(Width - enemy.Definition.Width, enemy.X));
-                enemy.Y = groundY + playerHeight - enemy.Body.Height;
+
+                double floorY = groundY + playerHeight - enemy.Body.Height;
+                enemy.VerticalVelocity += gameConfig.Gravity;
+                enemy.Y += enemy.VerticalVelocity;
+                if (enemy.Y >= floorY)
+                {
+                    enemy.Y = floorY;
+                    enemy.VerticalVelocity = 0;
+                    enemy.IsGrounded = true;
+                    enemy.HorizontalVelocity *= 0.6;
+                    if (Math.Abs(enemy.HorizontalVelocity) < 0.05)
+                        enemy.HorizontalVelocity = 0;
+                }
+                else
+                {
+                    enemy.IsGrounded = false;
+                    enemy.HorizontalVelocity *= 0.985;
+                }
 
                 if (enemy.AttackCooldownFrames > 0)
                     enemy.AttackCooldownFrames--;
@@ -3326,8 +3460,9 @@ namespace TaskbarRPG
 
                 if (enemy.BodySprite != null)
                 {
-                    var frames = (enemy.IsAttacking && enemy.AttackFrames.Count > 0)
-                        ? enemy.AttackFrames
+                    var attackFrames = GetAttackFramesForCurrentBehavior(enemy);
+                    var frames = (enemy.IsAttacking && attackFrames.Count > 0)
+                        ? attackFrames
                         : enemy.WalkFrames;
 
                     if (frames.Count > 0)
@@ -3337,6 +3472,158 @@ namespace TaskbarRPG
                     }
                 }
             }
+        }
+
+        private string SelectBehavior(IReadOnlyList<string> behaviorIds, string? previousBehavior = null)
+        {
+            if (behaviorIds.Count == 0)
+                return "melee_chaser";
+            if (behaviorIds.Count == 1)
+                return behaviorIds[0];
+
+            var candidates = behaviorIds
+                .Where(id => !string.Equals(id, previousBehavior, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (candidates.Count == 0)
+                candidates = behaviorIds.ToList();
+            return candidates[rng.Next(candidates.Count)];
+        }
+
+        private List<BitmapImage> GetAttackFramesForCurrentBehavior(SpawnedEnemy enemy)
+        {
+            if (enemy.BehaviorAttackFrames.TryGetValue(enemy.CurrentBehaviorId, out var behaviorFrames) && behaviorFrames.Count > 0)
+                return behaviorFrames;
+            return enemy.AttackFrames;
+        }
+
+        private void UpdateEnemyBehaviorSelection(SpawnedEnemy enemy)
+        {
+            if (enemy.Definition.BehaviorIds.Count == 0)
+            {
+                enemy.CurrentBehaviorId = "melee_chaser";
+                return;
+            }
+
+            if (enemy.Definition.BehaviorIds.Count == 1)
+            {
+                enemy.CurrentBehaviorId = enemy.Definition.BehaviorIds[0];
+                return;
+            }
+
+            if (enemy.BehaviorCycleFrames > 0)
+                enemy.BehaviorCycleFrames--;
+
+            if (enemy.BehaviorCycleFrames <= 0)
+            {
+                enemy.CurrentBehaviorId = SelectBehavior(enemy.Definition.BehaviorIds, enemy.CurrentBehaviorId);
+                enemy.BehaviorCycleFrames = rng.Next(90, 181);
+                enemy.BehaviorTimerFrames = rng.Next(0, Math.Max(1, enemy.Definition.BehaviorIntervalFrames));
+                enemy.IsTelegraphing = false;
+                enemy.TelegraphFramesRemaining = 0;
+                enemy.IsAttacking = false;
+                enemy.AttackFramesRemaining = 0;
+            }
+        }
+
+        private void UpdateMeleeChaserEnemy(SpawnedEnemy enemy, bool inAggroRange, bool inAttackRange, double playerCenterX, double enemyCenterX)
+        {
+            if (inAggroRange)
+            {
+                enemy.Direction = playerCenterX >= enemyCenterX ? 1 : -1;
+
+                if (!enemy.IsAttacking && enemy.AttackCooldownFrames <= 0 && inAttackRange)
+                {
+                    var attackFrames = GetAttackFramesForCurrentBehavior(enemy);
+                    enemy.IsAttacking = true;
+                    enemy.AttackFramesRemaining = Math.Max(10, attackFrames.Count * 8);
+                    enemy.AttackDamageApplied = false;
+                    enemy.AttackCooldownFrames = Math.Max(10, enemy.Definition.BehaviorIntervalFrames);
+                }
+            }
+            else
+            {
+                if (enemy.X <= enemy.LeftBound) enemy.Direction = 1;
+                else if (enemy.X >= enemy.RightBound) enemy.Direction = -1;
+            }
+
+            if (!enemy.IsAttacking && (!inAggroRange || !inAttackRange))
+                enemy.X += enemy.Speed * enemy.Direction;
+        }
+
+        private void UpdateHopContactEnemy(SpawnedEnemy enemy, bool inAggroRange, double playerCenterX)
+        {
+            if (enemy.BehaviorTimerFrames > 0)
+                enemy.BehaviorTimerFrames--;
+
+            if (inAggroRange)
+                enemy.Direction = playerCenterX >= enemy.X ? 1 : -1;
+
+            if (enemy.IsGrounded && enemy.BehaviorTimerFrames <= 0)
+            {
+                if (!inAggroRange)
+                {
+                    // Wander hops: choose a random direction if player isn't in aggro range.
+                    bool nearLeftBound = enemy.X <= enemy.LeftBound + 8;
+                    bool nearRightBound = enemy.X >= enemy.RightBound - 8;
+                    if (nearLeftBound) enemy.Direction = 1;
+                    else if (nearRightBound) enemy.Direction = -1;
+                    else enemy.Direction = rng.NextDouble() < 0.5 ? -1 : 1;
+                }
+
+                enemy.VerticalVelocity = gameConfig.JumpStrength * 0.8;
+                double hopSpeedBoost = inAggroRange
+                    ? 2.2
+                    : (0.7 + (rng.NextDouble() * 0.7));
+                enemy.HorizontalVelocity = enemy.Direction * enemy.Speed * hopSpeedBoost;
+                enemy.BehaviorTimerFrames = Math.Max(20, enemy.Definition.BehaviorIntervalFrames + rng.Next(-15, 16));
+                enemy.IsAttacking = false;
+            }
+        }
+
+        private void UpdateDashStrikeEnemy(SpawnedEnemy enemy, bool inAggroRange, bool inAttackRange, double playerCenterX, double enemyCenterX)
+        {
+            if (inAggroRange)
+                enemy.Direction = playerCenterX >= enemyCenterX ? 1 : -1;
+            else
+            {
+                    if (enemy.X <= enemy.LeftBound) enemy.Direction = 1;
+                else if (enemy.X >= enemy.RightBound) enemy.Direction = -1;
+            }
+
+            if (!enemy.IsAttacking && !enemy.IsTelegraphing && enemy.AttackCooldownFrames <= 0 && inAggroRange)
+            {
+                enemy.IsTelegraphing = true;
+                enemy.TelegraphFramesRemaining = 14;
+            }
+
+            if (enemy.IsTelegraphing)
+            {
+                enemy.TelegraphFramesRemaining--;
+                if (enemy.TelegraphFramesRemaining <= 0)
+                {
+                    enemy.IsTelegraphing = false;
+                    enemy.IsAttacking = true;
+                    enemy.AttackDamageApplied = false;
+                    enemy.AttackFramesRemaining = inAttackRange ? 14 : 18;
+                    enemy.AttackCooldownFrames = Math.Max(14, enemy.Definition.BehaviorIntervalFrames);
+                }
+                return;
+            }
+
+            if (enemy.IsAttacking)
+            {
+                if (enemy.AttackFramesRemaining > 8)
+                    return;
+
+                double dashSpeed = enemy.Speed * (inAttackRange ? 4.2 : 3.4);
+                enemy.X += enemy.Direction * dashSpeed;
+                return;
+            }
+
+            if (inAggroRange)
+                enemy.X += enemy.Speed * enemy.Direction * 0.75;
+            else
+                enemy.X += enemy.Speed * enemy.Direction * 0.45;
         }
 
         private void DrawEnemies()
@@ -3351,7 +3638,7 @@ namespace TaskbarRPG
                 {
                     spriteWidth = GetSpriteWidthForHeight(currentFrame, enemy.Definition.Height);
                 }
-                else if (enemy.IsAttacking && enemy.AttackFrames.Count > 0)
+                else if (enemy.IsAttacking && GetAttackFramesForCurrentBehavior(enemy).Count > 0)
                 {
                     spriteWidth = enemy.Definition.Width * 2;
                 }
@@ -3363,6 +3650,9 @@ namespace TaskbarRPG
 
                 enemy.Body.Width = spriteWidth;
                 enemy.CurrentSpriteWidth = spriteWidth;
+                enemy.Body.Opacity = enemy.IsTelegraphing
+                    ? (((animationFrameCounter / 3) % 2 == 0) ? 0.55 : 1.0)
+                    : 1.0;
                 Canvas.SetLeft(enemy.Body, drawX);
                 Canvas.SetTop(enemy.Body, enemy.Y);
 
@@ -3406,6 +3696,19 @@ namespace TaskbarRPG
             foreach (var enemy in activeEnemies)
             {
                 if (!enemy.IsAlive) continue;
+
+                if (enemy.CurrentBehaviorId == "hop_contact")
+                {
+                    Rect enemyRect = GetEnemyCollisionRect(enemy);
+                    if (playerRect.IntersectsWith(enemyRect))
+                    {
+                        playerData.Health = Math.Max(0, playerData.Health - enemy.Definition.ContactDamage);
+                        playerDamageCooldownFrames = PlayerDamageCooldownMax;
+                        ShowStatus($"{enemy.Definition.Name} crashes into you!", 35);
+                        break;
+                    }
+                    continue;
+                }
 
                 if (enemy.IsAttacking && !enemy.AttackDamageApplied)
                 {
@@ -3543,7 +3846,62 @@ namespace TaskbarRPG
         // -----------------------------------------------------------------------
         // Combat — bow
         // -----------------------------------------------------------------------
-        private void FireBow()
+        private void UpdateBowChargeInput(bool firePressedThisFrame, bool fireReleasedThisFrame)
+        {
+            if (firePressedThisFrame)
+                BeginBowCharge();
+
+            if (isBowCharging && fireHeld)
+            {
+                bowChargeFrames = Math.Min(BowChargeMaxFrames, bowChargeFrames + 1);
+                if (bowChargeFrames >= BowChargeMaxFrames && !bowChargeFullNotified)
+                {
+                    ShowStatus("Bow fully charged!", 20);
+                    bowChargeFullNotified = true;
+                }
+            }
+
+            if (isBowCharging && fireReleasedThisFrame)
+            {
+                double chargeRatio = BowChargeMaxFrames <= 0 ? 0 : Math.Clamp((double)bowChargeFrames / BowChargeMaxFrames, 0, 1);
+                FireBow(chargeRatio);
+                CancelBowCharge();
+            }
+        }
+
+        private void BeginBowCharge()
+        {
+            if (panelMode != PanelMode.None)
+                return;
+            if (playerData.EquippedBow == null)
+            {
+                ShowStatus("No bow equipped", 50);
+                return;
+            }
+            if (bowCooldownFrames > 0)
+            {
+                ShowStatus($"Bow cooling down ({bowCooldownFrames})", 25);
+                return;
+            }
+            if (playerData.GetArrowCount() <= 0)
+            {
+                ShowStatus("Out of arrows", 50);
+                return;
+            }
+
+            isBowCharging = true;
+            bowChargeFrames = 0;
+            bowChargeFullNotified = false;
+        }
+
+        private void CancelBowCharge()
+        {
+            isBowCharging = false;
+            bowChargeFrames = 0;
+            bowChargeFullNotified = false;
+        }
+
+        private void FireBow(double chargeRatio)
         {
             if (playerData.EquippedBow == null)
             {
@@ -3557,17 +3915,23 @@ namespace TaskbarRPG
                 return;
             }
 
-            int damage = playerData.BaseDamage + playerData.EquippedBow.Damage;
+            double damageScale = 0.75 + (chargeRatio * 1.25);
+            int damage = Math.Max(1, (int)Math.Round((playerData.BaseDamage + playerData.EquippedBow.Damage) * damageScale));
+            double speedScale = 0.8 + (chargeRatio * 0.7);
+            double minRange = Math.Max(120, Width * 0.12);
+            double maxRange = Math.Max(minRange + 40, Width * 0.5);
+            bool isMaxCharge = chargeRatio >= 0.98;
+            List<BitmapImage> arrowFramesToUse = isMaxCharge ? playerArrowMaxFrames : playerArrowFrames;
 
             FrameworkElement body;
-            if (playerArrowSprite != null)
+            if (arrowFramesToUse.Count > 0)
             {
                 var arrowImage = new Image
                 {
                     Width = 16,
                     Height = 16,
                     Stretch = Stretch.Fill,
-                    Source = playerArrowSprite
+                    Source = arrowFramesToUse[0]
                 };
                 RenderOptions.SetBitmapScalingMode(arrowImage, BitmapScalingMode.NearestNeighbor);
                 body = arrowImage;
@@ -3589,17 +3953,23 @@ namespace TaskbarRPG
 
             double startX = facingRight ? playerX + playerWidth + 2 : playerX - body.Width;
             double startY = playerY + (playerHeight / 2) - (body.Height / 2);
-            double maxDistance = arrowSpeed * arrowDurationFrames;
+            double maxDistance = minRange + ((maxRange - minRange) * chargeRatio);
+            double launchLift = -(0.6 + (chargeRatio * 2.4));
+            double projectileGravity = gravity * (1.4 - (chargeRatio * 0.9));
 
             activeProjectiles.Add(new ArrowProjectile
             {
                 Body = body,
+                Frames = arrowFramesToUse,
+                AnimationFrameCounter = rng.Next(0, 1000),
                 X = startX,
                 Y = startY,
                 Direction = facingRight ? 1 : -1,
-                Speed = arrowSpeed,
+                Speed = arrowSpeed * speedScale,
                 MaxDistance = maxDistance,
                 DistanceTraveled = 0,
+                VerticalVelocity = launchLift,
+                GravityPerFrame = projectileGravity,
                 Damage = damage,
                 IsAlive = true
             });
@@ -3616,8 +3986,17 @@ namespace TaskbarRPG
                 double move = arrow.Speed * arrow.Direction;
                 arrow.X += move;
                 arrow.DistanceTraveled += Math.Abs(move);
+                arrow.VerticalVelocity += arrow.GravityPerFrame;
+                arrow.Y += arrow.VerticalVelocity;
 
                 if (arrow.DistanceTraveled >= arrow.MaxDistance)
+                {
+                    RemoveProjectile(arrow);
+                    continue;
+                }
+
+                double floorY = groundY + playerHeight;
+                if (arrow.Y + arrow.Body.Height >= floorY)
                 {
                     RemoveProjectile(arrow);
                     continue;
@@ -3649,6 +4028,12 @@ namespace TaskbarRPG
 
                 if (arrow.Body is Image image)
                 {
+                    if (arrow.Frames.Count > 0)
+                    {
+                        arrow.AnimationFrameCounter++;
+                        int frameIndex = (arrow.AnimationFrameCounter / 4) % arrow.Frames.Count;
+                        image.Source = arrow.Frames[frameIndex];
+                    }
                     image.RenderTransformOrigin = new Point(0.5, 0.5);
                     image.RenderTransform = new ScaleTransform(arrow.Direction >= 0 ? 1 : -1, 1);
                 }
@@ -3867,6 +4252,21 @@ namespace TaskbarRPG
                 int attackIndex = (animationFrameCounter / 5) % playerAttackFrames.Count;
                 activeFrame = playerAttackFrames[attackIndex];
             }
+            else if (isBowCharging)
+            {
+                double chargeRatio = BowChargeMaxFrames <= 0 ? 0 : Math.Clamp((double)bowChargeFrames / BowChargeMaxFrames, 0, 1);
+                List<BitmapImage> bowFrames =
+                    chargeRatio >= 1.0 && playerBowFullFrames.Count > 0 ? playerBowFullFrames :
+                    chargeRatio >= 0.66 && playerBowCharge3Frames.Count > 0 ? playerBowCharge3Frames :
+                    chargeRatio >= 0.33 && playerBowCharge2Frames.Count > 0 ? playerBowCharge2Frames :
+                    playerBowCharge1Frames;
+
+                if (bowFrames.Count == 0)
+                    bowFrames = playerAttackFrames.Count > 0 ? playerAttackFrames : playerIdleFrames;
+
+                int bowFrameIndex = (animationFrameCounter / 6) % Math.Max(1, bowFrames.Count);
+                activeFrame = bowFrames[bowFrameIndex];
+            }
             else if (playerDamageCooldownFrames > 0 && playerDamagedFrames.Count > 0)
             {
                 int damageIndex = (animationFrameCounter / 6) % playerDamagedFrames.Count;
@@ -3897,7 +4297,7 @@ namespace TaskbarRPG
             player.Width = spriteDrawWidth;
 
             double playerDrawX = playerX;
-            if (isAttacking && !facingRight)
+            if ((isAttacking || isBowCharging) && !facingRight)
                 playerDrawX = playerX - (spriteDrawWidth - playerWidth);
 
             Canvas.SetLeft(player, playerDrawX);
