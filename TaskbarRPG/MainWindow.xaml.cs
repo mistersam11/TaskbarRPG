@@ -440,6 +440,7 @@ namespace TaskbarRPG
 
             int count = rng.Next(4, 9);
             var spawns = new List<EnemyDefinition>();
+            const double leftSpawnPadding = 260.0;
             double spacing = 1300.0 / count;
             var enemyMap = enemyTemplates.ToDictionary(e => e.Name, e => e, StringComparer.OrdinalIgnoreCase);
             var allowedEnemies = chosenArea.EnemyNames
@@ -462,7 +463,7 @@ namespace TaskbarRPG
                     BehaviorIds = chosen.BehaviorIds.Count > 0 ? chosen.BehaviorIds.ToList() : new List<string> { "melee_chaser" },
                     BehaviorIntervalFrames = chosen.BehaviorIntervalFrames,
                     PowerLevel = enemyLevel,
-                    X = 160 + (i * spacing) + rng.Next(-25, 26),
+                    X = leftSpawnPadding + (i * spacing) + rng.Next(-25, 26),
                     PatrolRange = 90 + rng.Next(0, 70),
                     AggroRange = 160 + rng.Next(0, 70),
                     Speed = Math.Max(0.4, chosen.MoveSpeed),
@@ -3639,12 +3640,12 @@ namespace TaskbarRPG
                     else enemy.Direction = rng.NextDouble() < 0.5 ? -1 : 1;
                 }
 
-                enemy.VerticalVelocity = gameConfig.JumpStrength * 0.9;
+                enemy.VerticalVelocity = gameConfig.JumpStrength * 1.05;
                 double hopSpeedBoost = inAggroRange
-                    ? 2.45
-                    : (0.85 + (rng.NextDouble() * 0.7));
+                    ? 3.0
+                    : (1.15 + (rng.NextDouble() * 0.95));
                 enemy.HorizontalVelocity = enemy.Direction * enemy.Speed * hopSpeedBoost;
-                enemy.BehaviorTimerFrames = Math.Max(14, enemy.Definition.BehaviorIntervalFrames - 6 + rng.Next(-12, 13));
+                enemy.BehaviorTimerFrames = Math.Max(10, enemy.Definition.BehaviorIntervalFrames - 14 + rng.Next(-10, 11));
                 enemy.IsAttacking = false;
             }
         }
@@ -3703,6 +3704,13 @@ namespace TaskbarRPG
                 if (isWolf)
                 {
                     // Wolves should lunge forward as they lift off (simultaneous arc + dash).
+                    if (enemy.IsGrounded)
+                    {
+                        enemy.HorizontalVelocity = enemy.LockedAttackDirection * enemy.Speed * 0.45;
+                        enemy.AttackFramesRemaining = Math.Min(enemy.AttackFramesRemaining, 3);
+                        return;
+                    }
+
                     double dashSpeed = enemy.Speed * (inAttackRange ? 3.8 : 3.2);
                     if (!enemy.IsGrounded)
                         dashSpeed *= 1.1;
