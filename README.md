@@ -108,9 +108,11 @@ Player animations support any number of frames using `player_<action><index>.png
 | Enemy walk frames | `Assets/Enemy` | `<name>_walk1.png`, `<name>_walk2.png`, ... | `~18x24` visual target |
 | Enemy attack frames (generic fallback) | `Assets/Enemy` | `<name>_attack1.png`, `<name>_attack2.png`, ... | any size; in-game width follows frame aspect ratio |
 | Enemy behavior attack frames | `Assets/Enemy` | `<name>_<behavior>_attack1.png`, `<name>_<behavior>_attack2.png`, ... (e.g. `wolf_dash_strike_attack1.png`) | any size; used when that behavior is active |
+| Enemy behavior telegraph frames | `Assets/Enemy` | `<name>_<behavior>_telegraph1.png`, `<name>_<behavior>_telegraph2.png`, ... (e.g. `wolf_dash_strike_telegraph1.png`) | optional wind-up animation before attacks |
 | Boss walk frames | `Assets/Boss` | `<boss_name>_walk1.png`, `<boss_name>_walk2.png`, ... | `64x64` typical (varying sizes supported) |
 | Boss attack frames (generic fallback) | `Assets/Boss` | `<boss_name>_attack1.png`, `<boss_name>_attack2.png`, ... | extra-wide frames supported; width follows frame aspect ratio |
 | Boss behavior attack frames | `Assets/Boss` | `<boss_name>_<behavior>_attack1.png`, `<boss_name>_<behavior>_attack2.png`, ... | used per active boss behavior |
+| Boss behavior telegraph frames | `Assets/Boss` | `<boss_name>_<behavior>_telegraph1.png`, `<boss_name>_<behavior>_telegraph2.png`, ... | optional wind-up animation before attacks |
 | Item sprite (optional metadata) | `Assets/Item` | `<item_name_normalized>.png` (e.g. `iron_sword.png`) | `32x32` recommended |
 | Town/NPC/shop | `Assets/Town` | existing built-in names | existing project assets |
 
@@ -119,7 +121,7 @@ Player animations support any number of frames using `player_<action><index>.png
 - `F8` toggle game on/off.
 - `ESC` opens system menu (or closes it if already open).
 - `C` closes whichever panel/menu is currently open (does not open the system menu).
-- Hold `X` to draw the bow (up to 2 seconds), release to fire. More charge = more damage/range and flatter trajectory; low-charge arrows drop quickly, max-charge arrows can travel about half the area width.
+- Hold `X` to draw the bow (up to 2 seconds), release to fire. More charge = much higher damage/range and flatter trajectory; low-charge arrows drop quickly, max-charge arrows can travel most of the area width.
 - While system/reset menus are open:
   - `1` Save
   - `2` Save + Exit

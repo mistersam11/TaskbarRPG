@@ -758,6 +758,7 @@ namespace TaskbarRPG
         public List<BitmapImage> WalkFrames { get; set; } = new();
         public List<BitmapImage> AttackFrames { get; set; } = new();
         public Dictionary<string, List<BitmapImage>> BehaviorAttackFrames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, List<BitmapImage>> BehaviorTelegraphFrames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public Rectangle AttackHitbox = null!;
         public bool IsAttacking = false;
         public int AttackFramesRemaining = 0;
@@ -1035,22 +1036,32 @@ namespace TaskbarRPG
             return LoadFramesFromDirectory(IOPath.Combine(AppContext.BaseDirectory, "Assets", "Enemy"), normalized, action);
         }
 
-        private List<BitmapImage> LoadEnemyBehaviorAttackFrames(string enemyName, string behaviorId)
+        private List<BitmapImage> LoadEnemyBehaviorFrames(string enemyName, string behaviorId, string phase)
         {
             string normalizedBehavior = behaviorId.Trim().ToLowerInvariant();
-            var behaviorFrames = LoadEnemyFrames(enemyName, $"{normalizedBehavior}_attack");
+            var behaviorFrames = LoadEnemyFrames(enemyName, $"{normalizedBehavior}_{phase}");
             if (behaviorFrames.Count > 0)
                 return behaviorFrames;
 
             if (normalizedBehavior.EndsWith("_strike", StringComparison.OrdinalIgnoreCase))
             {
                 string shortBehavior = normalizedBehavior[..^"_strike".Length];
-                behaviorFrames = LoadEnemyFrames(enemyName, $"{shortBehavior}_attack");
+                behaviorFrames = LoadEnemyFrames(enemyName, $"{shortBehavior}_{phase}");
                 if (behaviorFrames.Count > 0)
                     return behaviorFrames;
             }
 
-            return LoadEnemyFrames(enemyName, "attack");
+            return LoadEnemyFrames(enemyName, phase);
+        }
+
+        private List<BitmapImage> LoadEnemyBehaviorAttackFrames(string enemyName, string behaviorId)
+        {
+            return LoadEnemyBehaviorFrames(enemyName, behaviorId, "attack");
+        }
+
+        private List<BitmapImage> LoadEnemyBehaviorTelegraphFrames(string enemyName, string behaviorId)
+        {
+            return LoadEnemyBehaviorFrames(enemyName, behaviorId, "telegraph");
         }
 
         private List<BitmapImage> LoadFramesFromDirectory(string dir, string normalizedName, string action)
@@ -2315,6 +2326,12 @@ namespace TaskbarRPG
             if (panelMode != PanelMode.None)
                 RenderCurrentPanel();
 
+            if (playerData.Health <= 0)
+            {
+                HandlePlayerDeath();
+                return;
+            }
+
             UpdateExitTexts();
             DrawPlayer();
             DrawAttackHitbox();
@@ -2323,6 +2340,29 @@ namespace TaskbarRPG
             DrawInteractionIndicators();
             DrawEnemies();
             DrawProjectiles();
+        }
+
+        private void HandlePlayerDeath()
+        {
+            int previousGold = playerData.Gold;
+            int checkpointStage = currentStageNumber > 0
+                ? (((Math.Max(1, currentStageNumber) - 1) / 5) * 5) + 1
+                : 1;
+
+            while (checkpointStage > 1 && !AreaDefinitions.CanGenerateStage(checkpointStage))
+                checkpointStage--;
+            checkpointStage = Math.Max(1, checkpointStage);
+
+            playerData.Gold = Math.Max(0, (int)Math.Floor(previousGold * 0.7));
+            playerData.Experience = 0;
+            playerData.Health = playerData.MaxHealth;
+
+            highestUnlockedStage = checkpointStage;
+
+            CloseAllPanels();
+            ResetHeldInputs();
+            LoadArea(0, TransitionDirection.Left, animate: false);
+            ShowStatus($"Player died (so sad). Lost 30% gold. Frontier reset to Stage {checkpointStage}.", 150);
         }
 
         private void RefreshLayoutSizedElements()
@@ -3271,8 +3311,12 @@ namespace TaskbarRPG
                 var walkFrames = LoadEnemyFrames(def.Name, "walk");
                 var attackFrames = LoadEnemyFrames(def.Name, "attack");
                 var behaviorAttackFrames = new Dictionary<string, List<BitmapImage>>(StringComparer.OrdinalIgnoreCase);
+                var behaviorTelegraphFrames = new Dictionary<string, List<BitmapImage>>(StringComparer.OrdinalIgnoreCase);
                 foreach (string behaviorId in def.BehaviorIds.Distinct(StringComparer.OrdinalIgnoreCase))
+                {
                     behaviorAttackFrames[behaviorId] = LoadEnemyBehaviorAttackFrames(def.Name, behaviorId);
+                    behaviorTelegraphFrames[behaviorId] = LoadEnemyBehaviorTelegraphFrames(def.Name, behaviorId);
+                }
 
                 FrameworkElement body;
                 Image? bodySprite = null;
@@ -3362,6 +3406,7 @@ namespace TaskbarRPG
                     WalkFrames = walkFrames,
                     AttackFrames = attackFrames,
                     BehaviorAttackFrames = behaviorAttackFrames,
+                    BehaviorTelegraphFrames = behaviorTelegraphFrames,
                     AttackHitbox = attackHitbox,
                     Label = label,
                     HealthBg = healthBg,
@@ -3461,9 +3506,14 @@ namespace TaskbarRPG
                 if (enemy.BodySprite != null)
                 {
                     var attackFrames = GetAttackFramesForCurrentBehavior(enemy);
-                    var frames = (enemy.IsAttacking && attackFrames.Count > 0)
-                        ? attackFrames
-                        : enemy.WalkFrames;
+                    var telegraphFrames = GetTelegraphFramesForCurrentBehavior(enemy);
+                    List<BitmapImage> frames;
+                    if (enemy.IsTelegraphing && telegraphFrames.Count > 0)
+                        frames = telegraphFrames;
+                    else if (enemy.IsAttacking && attackFrames.Count > 0)
+                        frames = attackFrames;
+                    else
+                        frames = enemy.WalkFrames;
 
                     if (frames.Count > 0)
                     {
@@ -3494,6 +3544,13 @@ namespace TaskbarRPG
             if (enemy.BehaviorAttackFrames.TryGetValue(enemy.CurrentBehaviorId, out var behaviorFrames) && behaviorFrames.Count > 0)
                 return behaviorFrames;
             return enemy.AttackFrames;
+        }
+
+        private List<BitmapImage> GetTelegraphFramesForCurrentBehavior(SpawnedEnemy enemy)
+        {
+            if (enemy.BehaviorTelegraphFrames.TryGetValue(enemy.CurrentBehaviorId, out var behaviorFrames) && behaviorFrames.Count > 0)
+                return behaviorFrames;
+            return enemy.WalkFrames;
         }
 
         private void UpdateEnemyBehaviorSelection(SpawnedEnemy enemy)
@@ -3915,11 +3972,11 @@ namespace TaskbarRPG
                 return;
             }
 
-            double damageScale = 0.75 + (chargeRatio * 1.25);
+            double damageScale = 0.65 + (chargeRatio * 2.35);
             int damage = Math.Max(1, (int)Math.Round((playerData.BaseDamage + playerData.EquippedBow.Damage) * damageScale));
-            double speedScale = 0.8 + (chargeRatio * 0.7);
+            double speedScale = 0.8 + (chargeRatio * 1.0);
             double minRange = Math.Max(120, Width * 0.12);
-            double maxRange = Math.Max(minRange + 40, Width * 0.5);
+            double maxRange = Math.Max(minRange + 40, Width * 0.85);
             bool isMaxCharge = chargeRatio >= 0.98;
             List<BitmapImage> arrowFramesToUse = isMaxCharge ? playerArrowMaxFrames : playerArrowFrames;
 
@@ -3954,8 +4011,8 @@ namespace TaskbarRPG
             double startX = facingRight ? playerX + playerWidth + 2 : playerX - body.Width;
             double startY = playerY + (playerHeight / 2) - (body.Height / 2);
             double maxDistance = minRange + ((maxRange - minRange) * chargeRatio);
-            double launchLift = -(0.6 + (chargeRatio * 2.4));
-            double projectileGravity = gravity * (1.4 - (chargeRatio * 0.9));
+            double launchLift = -(0.6 + (chargeRatio * 3.2));
+            double projectileGravity = gravity * (1.5 - (chargeRatio * 1.25));
 
             activeProjectiles.Add(new ArrowProjectile
             {
