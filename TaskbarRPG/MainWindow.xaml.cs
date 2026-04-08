@@ -331,7 +331,7 @@ namespace TaskbarRPG
     {
         private static readonly List<BossTemplate> defaultBossTemplates = new()
         {
-            new BossTemplate { Name = "The Goo", Health = 80, AttackDamage = 15, MoveSpeed = 1.05, Width = 64, Height = 64, BehaviorIds = new() { "hop_contact", "dash_strike" }, BehaviorIntervalFrames = 42 },
+            new BossTemplate { Name = "The Goo", Health = 80, AttackDamage = 20, MoveSpeed = 1.05, Width = 64, Height = 64, BehaviorIds = new() { "hop_contact", "dash_strike" }, BehaviorIntervalFrames = 42 },
             new BossTemplate { Name = "Fallen Knight", Health = 105, AttackDamage = 19, MoveSpeed = 1.2, Width = 64, Height = 64, BehaviorIds = new() { "dash_strike", "melee_chaser" }, BehaviorIntervalFrames = 34 },
             new BossTemplate { Name = "DB-5000", Health = 130, AttackDamage = 24, MoveSpeed = 1.1, Width = 72, Height = 64, BehaviorIds = new() { "melee_chaser" }, BehaviorIntervalFrames = 30 },
         };
@@ -1172,7 +1172,7 @@ namespace TaskbarRPG
         private GameConfig gameConfig = new();
 
         // Physics / layout
-        private double playAreaHeight = 140;
+        private double playAreaHeight = 180;
         private double playerX = 100;
         private double playerY = 0;
         private double playerWidth = 32;
@@ -1500,7 +1500,7 @@ namespace TaskbarRPG
             {
                 string seed =
                     "# name;health;attackdamage;movespeed;width(optional);height(optional);behaviors(optional);behaviorintervalframes(optional)\n" +
-                    "The Goo;80;15;1.05;64;64;hop_contact,dash_strike;42\n" +
+                    "The Goo;80;20;1.05;64;64;hop_contact,dash_strike;42\n" +
                     "Fallen Knight;105;19;1.20;64;64;dash_strike,melee_chaser;34\n" +
                     "DB-5000;130;24;1.10;72;64;melee_chaser;30";
                 System.IO.File.WriteAllText(path, seed);
