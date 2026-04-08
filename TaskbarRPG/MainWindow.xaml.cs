@@ -3622,6 +3622,8 @@ namespace TaskbarRPG
 
         private void UpdateHopContactEnemy(SpawnedEnemy enemy, bool inAggroRange, double playerCenterX)
         {
+            bool isSlime = enemy.Definition.Name.Equals("slime", StringComparison.OrdinalIgnoreCase);
+
             if (enemy.BehaviorTimerFrames > 0)
                 enemy.BehaviorTimerFrames--;
 
@@ -3640,12 +3642,16 @@ namespace TaskbarRPG
                     else enemy.Direction = rng.NextDouble() < 0.5 ? -1 : 1;
                 }
 
-                enemy.VerticalVelocity = gameConfig.JumpStrength * 1.05;
+                double hopJumpMultiplier = isSlime ? 0.68 : 1.05;
+                enemy.VerticalVelocity = gameConfig.JumpStrength * hopJumpMultiplier;
                 double hopSpeedBoost = inAggroRange
                     ? 3.0
                     : (1.15 + (rng.NextDouble() * 0.95));
                 enemy.HorizontalVelocity = enemy.Direction * enemy.Speed * hopSpeedBoost;
-                enemy.BehaviorTimerFrames = Math.Max(10, enemy.Definition.BehaviorIntervalFrames - 14 + rng.Next(-10, 11));
+                int hopIntervalFrames = isSlime
+                    ? (int)Math.Round(enemy.Definition.BehaviorIntervalFrames * 0.74)
+                    : enemy.Definition.BehaviorIntervalFrames;
+                enemy.BehaviorTimerFrames = Math.Max(10, hopIntervalFrames - 14 + rng.Next(-10, 11));
                 enemy.IsAttacking = false;
             }
         }
@@ -3686,7 +3692,8 @@ namespace TaskbarRPG
                     enemy.AttackFramesRemaining = isWolf
                         ? (inAttackRange ? 18 : 22)
                         : (inAttackRange ? 14 : 18);
-                    enemy.AttackCooldownFrames = Math.Max(14, enemy.Definition.BehaviorIntervalFrames);
+                    int wolfCooldownBonusFrames = isWolf ? 24 : 0;
+                    enemy.AttackCooldownFrames = Math.Max(14, enemy.Definition.BehaviorIntervalFrames + wolfCooldownBonusFrames);
                     if (isWolf && enemy.IsGrounded)
                     {
                         // Tiny pounce arc for wolves: quick lift + immediate forward drive.
