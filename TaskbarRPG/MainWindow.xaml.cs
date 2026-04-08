@@ -357,6 +357,13 @@ namespace TaskbarRPG
             return bossIndex >= 0 && bossIndex < bossTemplates.Count;
         }
 
+        public static bool IsFinalBossStage(int stage)
+        {
+            if (stage <= 0 || stage % 5 != 0) return false;
+            int bossIndex = (stage / 5) - 1;
+            return bossIndex >= 0 && bossIndex == bossTemplates.Count - 1;
+        }
+
         public static Area GetTown()
         {
             return new Area
@@ -2974,7 +2981,7 @@ namespace TaskbarRPG
             {
                 currentStageNumber = 0;
                 currentArea = AreaDefinitions.GetTown();
-                ShowStatus("You defeated all configured bosses. You win for now!", 150);
+                ShowStatus("No boss is configured for that milestone.", 120);
             }
             else
             {
@@ -3089,7 +3096,7 @@ namespace TaskbarRPG
 
                     if (!AreaDefinitions.CanGenerateStage(targetStage))
                     {
-                        ShowStatus("No configured boss for the next milestone. You win for now!", 120);
+                        ShowStatus("No configured boss for the next milestone.", 120);
                         playerX = Width - playerWidth;
                     }
                     else
@@ -3113,7 +3120,7 @@ namespace TaskbarRPG
                         int nextStage = currentStageNumber + 1;
                         if (!AreaDefinitions.CanGenerateStage(nextStage))
                         {
-                            ShowStatus("No more bosses configured. You win for now!", 140);
+                            ShowStatus("No boss is configured for the next milestone.", 120);
                             LoadArea(0, TransitionDirection.Right);
                         }
                         else
@@ -3811,7 +3818,9 @@ namespace TaskbarRPG
             {
                 highestUnlockedStage = Math.Max(highestUnlockedStage, currentStageNumber + 1);
                 string clearMessage = currentArea.IsBossArea
-                    ? "Boss defeated! Return right to Town."
+                    ? (AreaDefinitions.IsFinalBossStage(currentStageNumber)
+                        ? "Final boss defeated! You win!"
+                        : "Boss defeated! Return right to Town.")
                     : $"Area clear! Stage {currentStageNumber + 1} unlocked.";
                 ShowStatus(clearMessage, 100);
 
