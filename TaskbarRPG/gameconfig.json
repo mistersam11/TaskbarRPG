@@ -6,9 +6,5 @@
   "MoveSpeed": 4.4,
   "Gravity": 0.8,
   "JumpStrength": -12.4,
-  "ArrowHitboxWidth": 10,
-  "ArrowHitboxHeight": 6,
-  "ArrowSpeed": 8.5,
-  "ArrowDurationFrames": 35,
   "StatusFrames": 60
 }

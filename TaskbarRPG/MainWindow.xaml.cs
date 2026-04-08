@@ -208,10 +208,6 @@ namespace TaskbarRPG
         public double MoveSpeed { get; set; } = 4.4;
         public double Gravity { get; set; } = 0.8;
         public double JumpStrength { get; set; } = -7.4;
-        public double ArrowHitboxWidth { get; set; } = 10;
-        public double ArrowHitboxHeight { get; set; } = 6;
-        public double ArrowSpeed { get; set; } = 8.5;
-        public int ArrowDurationFrames { get; set; } = 35;
         public int StatusFrames { get; set; } = 60;
     }
 
@@ -1175,10 +1171,9 @@ namespace TaskbarRPG
         private double jumpStrength = -7.4;
         private double playerHitboxWidth = 24;
         private double playerHitboxHeight = 28;
-        private double arrowHitboxWidth = 10;
-        private double arrowHitboxHeight = 6;
-        private double arrowSpeed = 8.5;
-        private int arrowDurationFrames = 35;
+        private const double ArrowHitboxWidth = 10;
+        private const double ArrowHitboxHeight = 6;
+        private const double ArrowSpeed = 8.5;
         private double groundY = 0;
         private bool isOnGround = false;
         private bool facingRight = true;
@@ -1289,10 +1284,6 @@ namespace TaskbarRPG
             jumpStrength = gameConfig.JumpStrength;
             playerHitboxWidth = Math.Max(6, Math.Min(playerWidth, gameConfig.PlayerHitboxWidth));
             playerHitboxHeight = Math.Max(6, Math.Min(playerHeight, gameConfig.PlayerHitboxHeight));
-            arrowHitboxWidth = Math.Max(2, gameConfig.ArrowHitboxWidth);
-            arrowHitboxHeight = Math.Max(2, gameConfig.ArrowHitboxHeight);
-            arrowSpeed = Math.Max(1, gameConfig.ArrowSpeed);
-            arrowDurationFrames = Math.Max(1, gameConfig.ArrowDurationFrames);
         }
 
         private void LoadAreaTemplates()
@@ -3996,7 +3987,7 @@ namespace TaskbarRPG
                 return;
             }
 
-            double damageScale = 0.65 + (chargeRatio * 2.35);
+            double damageScale = 0.65 + (chargeRatio * 2.35) + (Math.Pow(chargeRatio, 2.0) * 1.5);
             int damage = Math.Max(1, (int)Math.Round((playerData.BaseDamage + playerData.EquippedBow.Damage) * damageScale));
             double speedScale = 0.8 + (chargeRatio * 1.0);
             double minRange = Math.Max(120, Width * 0.12);
@@ -4034,7 +4025,11 @@ namespace TaskbarRPG
 
             double startX = facingRight ? playerX + playerWidth + 2 : playerX - body.Width;
             double startY = playerY + (playerHeight / 2) - (body.Height / 2);
-            double maxDistance = minRange + ((maxRange - minRange) * chargeRatio);
+            const double MaxChargeRangeMultiplier = 4.0;
+            const double ChargeRangeCurvePower = 3.0;
+            double boostedMaxRange = maxRange * MaxChargeRangeMultiplier;
+            double chargeRangeRatio = Math.Pow(chargeRatio, ChargeRangeCurvePower);
+            double maxDistance = minRange + ((boostedMaxRange - minRange) * chargeRangeRatio);
             double launchLift = -(0.6 + (chargeRatio * 3.2));
             double projectileGravity = gravity * (1.5 - (chargeRatio * 1.25));
 
@@ -4046,7 +4041,7 @@ namespace TaskbarRPG
                 X = startX,
                 Y = startY,
                 Direction = facingRight ? 1 : -1,
-                Speed = arrowSpeed * speedScale,
+                Speed = ArrowSpeed * speedScale,
                 MaxDistance = maxDistance,
                 DistanceTraveled = 0,
                 VerticalVelocity = launchLift,
@@ -4123,8 +4118,8 @@ namespace TaskbarRPG
 
         private Rect GetArrowHitboxRect(ArrowProjectile arrow)
         {
-            double hitboxW = Math.Max(2, arrowHitboxWidth);
-            double hitboxH = Math.Max(2, arrowHitboxHeight);
+            double hitboxW = Math.Max(2, ArrowHitboxWidth);
+            double hitboxH = Math.Max(2, ArrowHitboxHeight);
             double hitboxX = arrow.X + ((arrow.Body.Width - hitboxW) / 2.0);
             double hitboxY = arrow.Y + ((arrow.Body.Height - hitboxH) / 2.0);
             return new Rect(hitboxX, hitboxY, hitboxW, hitboxH);
