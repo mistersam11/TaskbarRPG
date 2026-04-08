@@ -3688,8 +3688,9 @@ namespace TaskbarRPG
                     enemy.AttackCooldownFrames = Math.Max(14, enemy.Definition.BehaviorIntervalFrames);
                     if (isWolf && enemy.IsGrounded)
                     {
-                        // Tiny pounce arc for wolves: quick lift, but low enough to avoid going over the player.
-                        enemy.VerticalVelocity = Math.Min(enemy.VerticalVelocity, -2.15);
+                        // Tiny pounce arc for wolves: quick lift + immediate forward drive.
+                        enemy.VerticalVelocity = Math.Min(enemy.VerticalVelocity, -1.55);
+                        enemy.HorizontalVelocity = enemy.LockedAttackDirection * enemy.Speed * (inAttackRange ? 3.6 : 3.0);
                         enemy.IsGrounded = false;
                     }
                 }
@@ -3698,10 +3699,20 @@ namespace TaskbarRPG
 
             if (enemy.IsAttacking)
             {
+                bool isWolf = enemy.Definition.Name.Equals("wolf", StringComparison.OrdinalIgnoreCase);
+                if (isWolf)
+                {
+                    // Wolves should lunge forward as they lift off (simultaneous arc + dash).
+                    double dashSpeed = enemy.Speed * (inAttackRange ? 3.8 : 3.2);
+                    if (!enemy.IsGrounded)
+                        dashSpeed *= 1.1;
+                    enemy.HorizontalVelocity = enemy.LockedAttackDirection * dashSpeed;
+                    return;
+                }
+
                 if (enemy.AttackFramesRemaining > 8)
                     return;
 
-                bool isWolf = enemy.Definition.Name.Equals("wolf", StringComparison.OrdinalIgnoreCase);
                 double dashSpeed = isWolf
                     ? enemy.Speed * (inAttackRange ? 5.8 : 5.0)
                     : enemy.Speed * (inAttackRange ? 4.2 : 3.4);
