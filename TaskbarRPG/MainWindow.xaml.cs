@@ -766,15 +766,20 @@ namespace TaskbarRPG
         public Rectangle AttackHitbox = null!;
         public bool IsAttacking = false;
         public int AttackFramesRemaining = 0;
+        public int AttackAnimationTick = 0;
+        public int AttackAnimationDuration = 0;
         public int AttackCooldownFrames = 0;
         public bool AttackDamageApplied = false;
         public bool IsTelegraphing = false;
         public int TelegraphFramesRemaining = 0;
+        public int TelegraphAnimationTick = 0;
+        public int TelegraphAnimationDuration = 0;
         public bool HasLockedAttackDirection = false;
         public int LockedAttackDirection = 1;
         public string CurrentBehaviorId = "melee_chaser";
         public int BehaviorCycleFrames = 0;
         public int BehaviorTimerFrames = 0;
+        public int RecoveryPauseFrames = 0;
         public double HorizontalVelocity = 0;
         public double VerticalVelocity = 0;
         public bool IsGrounded = true;
@@ -790,6 +795,7 @@ namespace TaskbarRPG
         public bool IsAlive = true;
         public int CurrentHealth;
         public double CurrentSpriteWidth;
+        public double SpriteGroundOffsetY = 0;
         public bool IsAggroLocked = false;
     }
 
@@ -1054,12 +1060,29 @@ namespace TaskbarRPG
             if (behaviorFrames.Count > 0)
                 return behaviorFrames;
 
+            // Some shipped sprite sheets use "dask" instead of "dash" in the filename.
+            if (normalizedBehavior.Contains("dash", StringComparison.OrdinalIgnoreCase))
+            {
+                string typoBehavior = normalizedBehavior.Replace("dash", "dask", StringComparison.OrdinalIgnoreCase);
+                behaviorFrames = LoadEnemyFrames(enemyName, $"{typoBehavior}_{phase}");
+                if (behaviorFrames.Count > 0)
+                    return behaviorFrames;
+            }
+
             if (normalizedBehavior.EndsWith("_strike", StringComparison.OrdinalIgnoreCase))
             {
                 string shortBehavior = normalizedBehavior[..^"_strike".Length];
                 behaviorFrames = LoadEnemyFrames(enemyName, $"{shortBehavior}_{phase}");
                 if (behaviorFrames.Count > 0)
                     return behaviorFrames;
+
+                if (shortBehavior.Contains("dash", StringComparison.OrdinalIgnoreCase))
+                {
+                    string typoShortBehavior = shortBehavior.Replace("dash", "dask", StringComparison.OrdinalIgnoreCase);
+                    behaviorFrames = LoadEnemyFrames(enemyName, $"{typoShortBehavior}_{phase}");
+                    if (behaviorFrames.Count > 0)
+                        return behaviorFrames;
+                }
             }
 
             return LoadEnemyFrames(enemyName, phase);
@@ -1104,6 +1127,56 @@ namespace TaskbarRPG
                 return targetHeight;
 
             return targetHeight * ((double)frame.PixelWidth / frame.PixelHeight);
+        }
+
+        private static int GetHeldAnimationFrameIndex(int frameCount, int tick, int duration)
+        {
+            if (frameCount <= 1)
+                return 0;
+
+            int safeDuration = Math.Max(1, duration);
+            int clampedTick = Math.Clamp(tick, 0, safeDuration - 1);
+            return Math.Min(frameCount - 1, (clampedTick * frameCount) / safeDuration);
+        }
+
+        private void StartEnemyTelegraph(SpawnedEnemy enemy, int durationFrames)
+        {
+            enemy.IsTelegraphing = true;
+            enemy.TelegraphFramesRemaining = Math.Max(1, durationFrames);
+            enemy.TelegraphAnimationDuration = enemy.TelegraphFramesRemaining;
+            enemy.TelegraphAnimationTick = 0;
+        }
+
+        private void StopEnemyTelegraph(SpawnedEnemy enemy)
+        {
+            enemy.IsTelegraphing = false;
+            enemy.TelegraphFramesRemaining = 0;
+            enemy.TelegraphAnimationTick = 0;
+            enemy.TelegraphAnimationDuration = 0;
+        }
+
+        private void StartEnemyAttack(SpawnedEnemy enemy, int durationFrames)
+        {
+            enemy.IsAttacking = true;
+            enemy.AttackFramesRemaining = Math.Max(1, durationFrames);
+            enemy.AttackAnimationDuration = enemy.AttackFramesRemaining;
+            enemy.AttackAnimationTick = 0;
+        }
+
+        private void StopEnemyAttack(SpawnedEnemy enemy)
+        {
+            enemy.IsAttacking = false;
+            enemy.AttackFramesRemaining = 0;
+            enemy.AttackAnimationTick = 0;
+            enemy.AttackAnimationDuration = 0;
+        }
+
+        private double GetEnemySpriteGroundOffsetY(EnemyDefinition definition)
+        {
+            if (definition.Name.Equals("wolf", StringComparison.OrdinalIgnoreCase))
+                return 8;
+
+            return 0;
         }
 
         private BitmapImage? LoadOptionalPlayerSpriteFromDisk(string fileName)
@@ -1393,7 +1466,7 @@ namespace TaskbarRPG
                     "# name;health;attackdamage;movespeed;level;biomes;stages;width(optional);height(optional);attackhitboxwidth(optional);attackhitboxheight(optional);behavior(optional);behaviorintervalframes(optional)\n" +
                     "slime;10;4;0.9;1;plains;;16;28;18;16;hop_contact;135\n" +
                     "bat;9;5;1.4;2;cave;;20;16;18;10;melee_chaser;38\n" +
-                    "wolf;14;6;1.2;4;forest;;28;16;24;10;dash_strike;32\n" +
+                    "wolf;14;6;1.35;4;forest;;48;46;34;16;dash_strike;32\n" +
                     "crawler;18;8;1.1;6;cave;6-9;24;18;22;12;melee_chaser;34\n" +
                     "frostling;22;10;1.0;8;tundra;6-9;20;30;22;16;melee_chaser;36";
                 System.IO.File.WriteAllText(defsPath, seed);
@@ -3427,6 +3500,7 @@ namespace TaskbarRPG
                     CurrentBehaviorId = SelectBehavior(def.BehaviorIds),
                     BehaviorCycleFrames = rng.Next(90, 181),
                     BehaviorTimerFrames = rng.Next(0, Math.Max(1, def.BehaviorIntervalFrames)),
+                    SpriteGroundOffsetY = GetEnemySpriteGroundOffsetY(def),
                     HorizontalVelocity = 0,
                     VerticalVelocity = 0,
                     IsGrounded = true,
@@ -3514,12 +3588,30 @@ namespace TaskbarRPG
                 if (enemy.IsAttacking)
                 {
                     enemy.AttackFramesRemaining--;
+                    enemy.AttackAnimationTick++;
                     if (enemy.AttackFramesRemaining <= 0)
                     {
-                        enemy.IsAttacking = false;
+                        bool endedWolfDashAttack =
+                            enemy.Definition.Name.Equals("wolf", StringComparison.OrdinalIgnoreCase) &&
+                            enemy.CurrentBehaviorId.Equals("dash_strike", StringComparison.OrdinalIgnoreCase);
+                        StopEnemyAttack(enemy);
                         enemy.HasLockedAttackDirection = false;
+                        if (endedWolfDashAttack)
+                        {
+                            enemy.RecoveryPauseFrames = 7;
+                            enemy.HorizontalVelocity = 0;
+                        }
                     }
                 }
+                else
+                {
+                    enemy.AttackAnimationTick = 0;
+                }
+
+                if (enemy.IsTelegraphing)
+                    enemy.TelegraphAnimationTick++;
+                else
+                    enemy.TelegraphAnimationTick = 0;
 
                 if (enemy.BodySprite != null)
                 {
@@ -3535,7 +3627,25 @@ namespace TaskbarRPG
 
                     if (frames.Count > 0)
                     {
-                        int frameIndex = (animationFrameCounter / 10) % frames.Count;
+                        int frameIndex;
+                        if (enemy.IsTelegraphing && telegraphFrames.Count > 0)
+                        {
+                            frameIndex = GetHeldAnimationFrameIndex(
+                                telegraphFrames.Count,
+                                enemy.TelegraphAnimationTick,
+                                enemy.TelegraphAnimationDuration);
+                        }
+                        else if (enemy.IsAttacking && attackFrames.Count > 0)
+                        {
+                            frameIndex = GetHeldAnimationFrameIndex(
+                                attackFrames.Count,
+                                enemy.AttackAnimationTick,
+                                enemy.AttackAnimationDuration);
+                        }
+                        else
+                        {
+                            frameIndex = (animationFrameCounter / 10) % frames.Count;
+                        }
                         enemy.BodySprite.Source = frames[frameIndex];
                     }
                 }
@@ -3568,7 +3678,7 @@ namespace TaskbarRPG
         {
             if (enemy.BehaviorTelegraphFrames.TryGetValue(enemy.CurrentBehaviorId, out var behaviorFrames) && behaviorFrames.Count > 0)
                 return behaviorFrames;
-            return enemy.WalkFrames;
+            return new List<BitmapImage>();
         }
 
         private void UpdateEnemyBehaviorSelection(SpawnedEnemy enemy, bool inAttackRange)
@@ -3604,10 +3714,8 @@ namespace TaskbarRPG
                 enemy.CurrentBehaviorId = SelectBehavior(enemy.Definition.BehaviorIds, enemy.CurrentBehaviorId);
                 enemy.BehaviorCycleFrames = rng.Next(90, 181);
                 enemy.BehaviorTimerFrames = rng.Next(0, Math.Max(1, enemy.Definition.BehaviorIntervalFrames));
-                enemy.IsTelegraphing = false;
-                enemy.TelegraphFramesRemaining = 0;
-                enemy.IsAttacking = false;
-                enemy.AttackFramesRemaining = 0;
+                StopEnemyTelegraph(enemy);
+                StopEnemyAttack(enemy);
                 enemy.HasLockedAttackDirection = false;
             }
         }
@@ -3621,8 +3729,7 @@ namespace TaskbarRPG
                 if (!enemy.IsAttacking && enemy.AttackCooldownFrames <= 0 && inAttackRange)
                 {
                     var attackFrames = GetAttackFramesForCurrentBehavior(enemy);
-                    enemy.IsAttacking = true;
-                    enemy.AttackFramesRemaining = Math.Max(10, attackFrames.Count * 8);
+                    StartEnemyAttack(enemy, Math.Max(10, attackFrames.Count * 8));
                     enemy.AttackDamageApplied = false;
                     enemy.AttackCooldownFrames = Math.Max(10, enemy.Definition.BehaviorIntervalFrames);
                 }
@@ -3676,16 +3783,26 @@ namespace TaskbarRPG
                 int hopIntervalFrames = isSlime
                     ? (int)Math.Round(enemy.Definition.BehaviorIntervalFrames * 0.74)
                     : enemy.Definition.BehaviorIntervalFrames;
+                if (isSlime && hasAggro)
+                    hopIntervalFrames = (int)Math.Round(hopIntervalFrames / 1.4);
                 if (isGooBoss)
                     hopIntervalFrames = (int)Math.Round(hopIntervalFrames * 0.66);
                 enemy.BehaviorTimerFrames = Math.Max(10, hopIntervalFrames - 14 + rng.Next(-10, 11));
-                enemy.IsAttacking = false;
+                StopEnemyAttack(enemy);
             }
         }
 
         private void UpdateDashStrikeEnemy(SpawnedEnemy enemy, bool hasAggro, bool inAggroRange, bool inAttackRange, double playerCenterX, double enemyCenterX)
         {
             bool isGooBoss = enemy.Definition.Name.Equals("The Goo", StringComparison.OrdinalIgnoreCase);
+            bool isWolf = enemy.Definition.Name.Equals("wolf", StringComparison.OrdinalIgnoreCase);
+
+            if (enemy.RecoveryPauseFrames > 0)
+            {
+                enemy.RecoveryPauseFrames--;
+                enemy.HorizontalVelocity = 0;
+                return;
+            }
 
             if (enemy.HasLockedAttackDirection)
             {
@@ -3709,8 +3826,7 @@ namespace TaskbarRPG
                 enemy.LockedAttackDirection = playerCenterX >= enemyCenterX ? 1 : -1;
                 enemy.HasLockedAttackDirection = true;
                 enemy.Direction = enemy.LockedAttackDirection;
-                enemy.IsTelegraphing = true;
-                enemy.TelegraphFramesRemaining = isGooBoss ? 20 : 14;
+                StartEnemyTelegraph(enemy, isGooBoss ? 20 : 14);
             }
 
             if (enemy.IsTelegraphing)
@@ -3718,11 +3834,9 @@ namespace TaskbarRPG
                 enemy.TelegraphFramesRemaining--;
                 if (enemy.TelegraphFramesRemaining <= 0)
                 {
-                    enemy.IsTelegraphing = false;
-                    enemy.IsAttacking = true;
+                    StopEnemyTelegraph(enemy);
                     enemy.Direction = enemy.LockedAttackDirection;
                     enemy.AttackDamageApplied = false;
-                    bool isWolf = enemy.Definition.Name.Equals("wolf", StringComparison.OrdinalIgnoreCase);
                     if (isGooBoss)
                     {
                         double wallTargetX = enemy.LockedAttackDirection > 0
@@ -3730,13 +3844,13 @@ namespace TaskbarRPG
                             : 0;
                         double distanceToWall = Math.Abs(wallTargetX - enemy.X);
                         double gooDashSpeed = Math.Max(enemy.Speed * 6.8, 7.8);
-                        enemy.AttackFramesRemaining = Math.Max(16, (int)Math.Ceiling(distanceToWall / gooDashSpeed) + 4);
+                        StartEnemyAttack(enemy, Math.Max(16, (int)Math.Ceiling(distanceToWall / gooDashSpeed) + 4));
                     }
                     else
                     {
-                        enemy.AttackFramesRemaining = isWolf
+                        StartEnemyAttack(enemy, isWolf
                             ? (inAttackRange ? 18 : 22)
-                            : (inAttackRange ? 14 : 18);
+                            : (inAttackRange ? 14 : 18));
                     }
                     int wolfCooldownBonusFrames = isWolf ? 24 : 0;
                     enemy.AttackCooldownFrames = Math.Max(14, enemy.Definition.BehaviorIntervalFrames + wolfCooldownBonusFrames);
@@ -3762,15 +3876,13 @@ namespace TaskbarRPG
                     bool reachedLeftWall = enemy.LockedAttackDirection < 0 && enemy.X <= 1;
                     if (reachedLeftWall || reachedRightWall)
                     {
-                        enemy.IsAttacking = false;
-                        enemy.AttackFramesRemaining = 0;
+                        StopEnemyAttack(enemy);
                         enemy.HasLockedAttackDirection = false;
                         enemy.HorizontalVelocity = 0;
                     }
                     return;
                 }
 
-                bool isWolf = enemy.Definition.Name.Equals("wolf", StringComparison.OrdinalIgnoreCase);
                 if (isWolf)
                 {
                     // Wolves should lunge forward as they lift off (simultaneous arc + dash).
@@ -3826,11 +3938,12 @@ namespace TaskbarRPG
 
                 enemy.Body.Width = spriteWidth;
                 enemy.CurrentSpriteWidth = spriteWidth;
-                enemy.Body.Opacity = enemy.IsTelegraphing
+                bool hasTelegraphSprites = GetTelegraphFramesForCurrentBehavior(enemy).Count > 0;
+                enemy.Body.Opacity = enemy.IsTelegraphing && !hasTelegraphSprites
                     ? (((animationFrameCounter / 3) % 2 == 0) ? 0.55 : 1.0)
                     : 1.0;
                 Canvas.SetLeft(enemy.Body, drawX);
-                Canvas.SetTop(enemy.Body, enemy.Y);
+                Canvas.SetTop(enemy.Body, enemy.Y + enemy.SpriteGroundOffsetY);
 
                 if (enemy.BodySprite != null)
                 {
@@ -3874,10 +3987,8 @@ namespace TaskbarRPG
                     if (enemy.Definition.Name.Equals("The Goo", StringComparison.OrdinalIgnoreCase) &&
                         enemy.CurrentBehaviorId.Equals("dash_strike", StringComparison.OrdinalIgnoreCase))
                     {
-                        enemy.IsAttacking = false;
-                        enemy.IsTelegraphing = false;
-                        enemy.AttackFramesRemaining = 0;
-                        enemy.TelegraphFramesRemaining = 0;
+                        StopEnemyAttack(enemy);
+                        StopEnemyTelegraph(enemy);
                         enemy.HasLockedAttackDirection = false;
                         enemy.HorizontalVelocity = 0;
                     }

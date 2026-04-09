@@ -5,6 +5,6 @@
 # behavior: melee_chaser (default), hop_contact, dash_strike, or comma-separated list for multi-behavior enemies
 slime;10;4;0.9;1;plains;;16;28;18;16;hop_contact;135
 bat;9;5;1.4;2;cave;;20;16;18;10;melee_chaser;38
-wolf;14;6;1.2;4;forest;;28;16;24;10;dash_strike;32
+wolf;14;6;1.35;4;forest;;48;46;34;16;dash_strike;32
 crawler;18;8;1.1;6;cave;6-9;24;18;22;12;melee_chaser;34
 frostling;22;10;1.0;8;tundra;6-9;20;30;22;16;melee_chaser;36
