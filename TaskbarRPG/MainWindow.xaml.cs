@@ -839,6 +839,7 @@ namespace TaskbarRPG
         private const int VK_LEFT = 0x25;
         private const int VK_UP = 0x26;
         private const int VK_RIGHT = 0x27;
+        private const int VK_DOWN = 0x28;
         private const int VK_SPACE = 0x20;
         private const int VK_ESCAPE = 0x1B;
         private const int VK_A = 0x41;
@@ -925,6 +926,7 @@ namespace TaskbarRPG
         private bool leftHeld = false;
         private bool rightHeld = false;
         private bool jumpHeld = false;
+        private bool downHeld = false;
         private bool meleeHeld = false;
         private bool fireHeld = false;
         private bool closeHeld = false;
@@ -969,6 +971,7 @@ namespace TaskbarRPG
         private List<BitmapImage> playerIdleFrames = new();
         private List<BitmapImage> playerWalkFrames = new();
         private List<BitmapImage> playerAttackFrames = new();
+        private List<BitmapImage> playerDownAttackFrames = new();
         private List<BitmapImage> playerJumpFrames = new();
         private List<BitmapImage> playerDamagedFrames = new();
         private List<BitmapImage> playerBowCharge1Frames = new();
@@ -1174,7 +1177,7 @@ namespace TaskbarRPG
         private double GetEnemySpriteGroundOffsetY(EnemyDefinition definition)
         {
             if (definition.Name.Equals("wolf", StringComparison.OrdinalIgnoreCase))
-                return 8;
+                return 12;
 
             return 0;
         }
@@ -1270,6 +1273,7 @@ namespace TaskbarRPG
         private PanelMode panelMode = PanelMode.None;
 
         private bool isAttacking = false;
+        private bool isDownAttack = false;
         private int attackFramesRemaining = 0;
         private int attackDurationFrames = 8;
         private const double SwordKnockbackSpeed = 1.65;
@@ -1324,6 +1328,9 @@ namespace TaskbarRPG
             if (playerWalkFrames.Count == 1)
                 playerWalkFrames.Add(walkFallbackFrame);
             playerAttackFrames = LoadPlayerAnimationFrames("attack", "Assets/Player/player_attack.png");
+            playerDownAttackFrames = LoadPlayerAnimationFrames("attack_down");
+            if (playerDownAttackFrames.Count == 0)
+                playerDownAttackFrames = playerAttackFrames.ToList();
             playerJumpFrames = LoadPlayerAnimationFrames("jump");
             playerDamagedFrames = LoadPlayerAnimationFrames("damaged");
             playerBowCharge1Frames = LoadPlayerAnimationFrames("bow_charge1");
@@ -1937,6 +1944,8 @@ namespace TaskbarRPG
                 case VK_W:
                 case VK_SPACE:
                     jumpHeld = isDown; break;
+                case VK_DOWN:
+                    downHeld = isDown; break;
                 case VK_Z: meleeHeld = isDown; break;
                 case VK_X: fireHeld = isDown; break;
                 case VK_C: closeHeld = isDown; break;
@@ -1964,6 +1973,7 @@ namespace TaskbarRPG
                 case VK_LEFT:
                 case VK_UP:
                 case VK_RIGHT:
+                case VK_DOWN:
                 case VK_SPACE:
                 case VK_A:
                 case VK_C:
@@ -1995,7 +2005,7 @@ namespace TaskbarRPG
         {
             CancelBowCharge();
             leftHeld = rightHeld = jumpHeld = meleeHeld = fireHeld =
-            closeHeld = escapeHeld = fastTravelHeld = statsHeld = mapHeld = potionHeld = false;
+            downHeld = closeHeld = escapeHeld = fastTravelHeld = statsHeld = mapHeld = potionHeld = false;
 
             jumpHeldLastFrame = meleeHeldLastFrame = fireHeldLastFrame =
             closeHeldLastFrame = escapeHeldLastFrame = fastTravelHeldLastFrame = statsHeldLastFrame =
@@ -2589,11 +2599,20 @@ namespace TaskbarRPG
 
             if (meleePressedThisFrame)
             {
-                var interactable = FindInteractableZoneInRange();
-                if (interactable != null)
-                    InteractWithZone(interactable);
-                else if (!isAttacking && meleeCooldownFrames <= 0)
-                    StartMeleeAttack();
+                bool wantsDownAttack = downHeld;
+                if (wantsDownAttack)
+                {
+                    if (!isAttacking && meleeCooldownFrames <= 0)
+                        StartMeleeAttack(isDownwardAttack: true);
+                }
+                else
+                {
+                    var interactable = FindInteractableZoneInRange();
+                    if (interactable != null)
+                        InteractWithZone(interactable);
+                    else if (!isAttacking && meleeCooldownFrames <= 0)
+                        StartMeleeAttack(isDownwardAttack: false);
+                }
             }
 
             if (panelMode == PanelMode.None)
@@ -3963,8 +3982,12 @@ namespace TaskbarRPG
                 Canvas.SetLeft(enemy.HealthFill, enemy.X - 5);
                 Canvas.SetTop(enemy.HealthFill, enemy.Y - 22);
 
-                // Kept only for debug visualization compatibility; enemy combat no longer uses this hitbox.
-                enemy.AttackHitbox.Visibility = Visibility.Hidden;
+                Rect enemyCollisionRect = GetEnemyCollisionRect(enemy);
+                enemy.AttackHitbox.Width = enemyCollisionRect.Width;
+                enemy.AttackHitbox.Height = enemyCollisionRect.Height;
+                Canvas.SetLeft(enemy.AttackHitbox, enemyCollisionRect.X);
+                Canvas.SetTop(enemy.AttackHitbox, enemyCollisionRect.Y);
+                enemy.AttackHitbox.Visibility = gameConfig.Debug ? Visibility.Visible : Visibility.Hidden;
             }
         }
 
@@ -4066,9 +4089,10 @@ namespace TaskbarRPG
         // -----------------------------------------------------------------------
         // Combat — melee
         // -----------------------------------------------------------------------
-        private void StartMeleeAttack()
+        private void StartMeleeAttack(bool isDownwardAttack)
         {
             isAttacking = true;
+            isDownAttack = isDownwardAttack;
             attackFramesRemaining = attackDurationFrames;
             attackHitbox.Visibility = Visibility.Visible;
             meleeCooldownFrames = Math.Max(1, playerData.EquippedSword?.CooldownFrames ?? attackDurationFrames);
@@ -4129,6 +4153,7 @@ namespace TaskbarRPG
             if (attackFramesRemaining <= 0)
             {
                 isAttacking = false;
+                isDownAttack = false;
                 attackHitbox.Visibility = gameConfig.Debug ? Visibility.Visible : Visibility.Hidden;
             }
         }
@@ -4552,9 +4577,11 @@ namespace TaskbarRPG
 
         private Rect GetEnemyCollisionRect(SpawnedEnemy enemy)
         {
-            double hitboxW = Math.Max(6, enemy.Definition.Width);
-            double hitboxH = Math.Max(6, enemy.Definition.Height);
-            return new Rect(enemy.X, enemy.Y, hitboxW, hitboxH);
+            double hitboxW = Math.Max(6, enemy.Definition.Width * 0.74);
+            double hitboxH = Math.Max(6, enemy.Definition.Height * 0.76);
+            double hitboxX = enemy.X + ((enemy.Definition.Width - hitboxW) / 2.0);
+            double hitboxY = enemy.Y + (enemy.Definition.Height - hitboxH);
+            return new Rect(hitboxX, hitboxY, hitboxW, hitboxH);
         }
 
         // -----------------------------------------------------------------------
@@ -4566,10 +4593,16 @@ namespace TaskbarRPG
             double spriteDrawWidth = playerWidth;
             BitmapImage activeFrame = playerIdleFrames[0];
 
-            if (isAttacking && playerAttackFrames.Count > 0)
+            if (isAttacking)
             {
-                int attackIndex = (animationFrameCounter / 5) % playerAttackFrames.Count;
-                activeFrame = playerAttackFrames[attackIndex];
+                List<BitmapImage> attackFrames = isDownAttack && playerDownAttackFrames.Count > 0
+                    ? playerDownAttackFrames
+                    : playerAttackFrames;
+                if (attackFrames.Count > 0)
+                {
+                    int attackIndex = (animationFrameCounter / 5) % attackFrames.Count;
+                    activeFrame = attackFrames[attackIndex];
+                }
             }
             else if (isBowCharging)
             {
@@ -4631,14 +4664,22 @@ namespace TaskbarRPG
 
         private void DrawAttackHitbox()
         {
+            if (isDownAttack)
+            {
+                double hitboxX = playerX + ((playerWidth - attackHitbox.Width) / 2.0);
+                Canvas.SetLeft(attackHitbox, hitboxX);
+                Canvas.SetTop(attackHitbox, playerY + playerHeight - 6);
+                return;
+            }
+
             double overlapIntoPlayer = 16;
             double forwardReach = gameConfig.AttackPosition;
 
-            double hitboxX = facingRight
+            double sideHitboxX = facingRight
                 ? playerX + playerWidth - overlapIntoPlayer + forwardReach
                 : playerX - attackHitbox.Width + overlapIntoPlayer - forwardReach;
 
-            Canvas.SetLeft(attackHitbox, hitboxX);
+            Canvas.SetLeft(attackHitbox, sideHitboxX);
             Canvas.SetTop(attackHitbox, playerY + 10);
         }
 
