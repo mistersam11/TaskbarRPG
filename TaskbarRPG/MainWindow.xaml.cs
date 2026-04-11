@@ -258,6 +258,10 @@ namespace TaskbarRPG
         public double Height { get; set; } = 24;
         public double AttackHitboxWidth { get; set; } = 24;
         public double AttackHitboxHeight { get; set; } = 14;
+        public double? CollisionHitboxWidth { get; set; }
+        public double? CollisionHitboxHeight { get; set; }
+        public double? CollisionHitboxOffsetX { get; set; }
+        public double? CollisionHitboxOffsetY { get; set; }
     }
 
     public class EnemyTemplate
@@ -273,6 +277,10 @@ namespace TaskbarRPG
         public double Height { get; set; } = 24;
         public double AttackHitboxWidth { get; set; } = 24;
         public double AttackHitboxHeight { get; set; } = 14;
+        public double? CollisionHitboxWidth { get; set; }
+        public double? CollisionHitboxHeight { get; set; }
+        public double? CollisionHitboxOffsetX { get; set; }
+        public double? CollisionHitboxOffsetY { get; set; }
         public HashSet<BiomeType>? AllowedBiomes { get; set; } = null;
         public List<(int Min, int Max)> StageRanges { get; set; } = new();
 
@@ -476,6 +484,10 @@ namespace TaskbarRPG
                     Height = Math.Max(10, chosen.Height),
                     AttackHitboxWidth = Math.Max(8, chosen.AttackHitboxWidth),
                     AttackHitboxHeight = Math.Max(6, chosen.AttackHitboxHeight),
+                    CollisionHitboxWidth = chosen.CollisionHitboxWidth,
+                    CollisionHitboxHeight = chosen.CollisionHitboxHeight,
+                    CollisionHitboxOffsetX = chosen.CollisionHitboxOffsetX,
+                    CollisionHitboxOffsetY = chosen.CollisionHitboxOffsetY,
                     Color = Color.FromRgb(
                         (byte)rng.Next(70, 210),
                         (byte)rng.Next(70, 210),
@@ -1470,7 +1482,7 @@ namespace TaskbarRPG
             if (!System.IO.File.Exists(defsPath))
             {
                 string seed =
-                    "# name;health;attackdamage;movespeed;level;biomes;stages;width(optional);height(optional);attackhitboxwidth(optional);attackhitboxheight(optional);behavior(optional);behaviorintervalframes(optional)\n" +
+                    "# name;health;attackdamage;movespeed;level;biomes;stages;width(optional);height(optional);attackhitboxwidth(optional);attackhitboxheight(optional);behavior(optional);behaviorintervalframes(optional);collisionhitboxwidth(optional);collisionhitboxheight(optional);collisionhitboxoffsetx(optional);collisionhitboxoffsety(optional)\n" +
                     "slime;10;4;0.9;1;plains;;16;28;18;16;hop_contact;135\n" +
                     "bat;9;5;1.4;2;cave;;20;16;18;10;melee_chaser;38\n" +
                     "wolf;14;6;1.35;4;forest;;48;46;34;16;dash_strike;32\n" +
@@ -1561,8 +1573,24 @@ namespace TaskbarRPG
                 if (parts.Length >= 13 && int.TryParse(parts[12], out int parsedIntervalFrames))
                     template.BehaviorIntervalFrames = Math.Max(8, parsedIntervalFrames);
 
+                if (parts.Length >= 14 && double.TryParse(parts[13], out double parsedCollisionWidth))
+                    template.CollisionHitboxWidth = Math.Max(6, parsedCollisionWidth);
+
+                if (parts.Length >= 15 && double.TryParse(parts[14], out double parsedCollisionHeight))
+                    template.CollisionHitboxHeight = Math.Max(6, parsedCollisionHeight);
+
+                if (parts.Length >= 16 && double.TryParse(parts[15], out double parsedCollisionOffsetX))
+                    template.CollisionHitboxOffsetX = parsedCollisionOffsetX;
+
+                if (parts.Length >= 17 && double.TryParse(parts[16], out double parsedCollisionOffsetY))
+                    template.CollisionHitboxOffsetY = parsedCollisionOffsetY;
+
                 template.AttackHitboxWidth = Math.Max(6, template.AttackHitboxWidth);
                 template.AttackHitboxHeight = Math.Max(6, template.AttackHitboxHeight);
+                if (template.CollisionHitboxWidth.HasValue)
+                    template.CollisionHitboxWidth = Math.Min(template.Width, Math.Max(6, template.CollisionHitboxWidth.Value));
+                if (template.CollisionHitboxHeight.HasValue)
+                    template.CollisionHitboxHeight = Math.Min(template.Height, Math.Max(6, template.CollisionHitboxHeight.Value));
                 template.BehaviorIntervalFrames = Math.Max(8, template.BehaviorIntervalFrames);
                 if (template.BehaviorIds.Count == 0)
                     template.BehaviorIds = new List<string> { "melee_chaser" };
@@ -4577,10 +4605,22 @@ namespace TaskbarRPG
 
         private Rect GetEnemyCollisionRect(SpawnedEnemy enemy)
         {
-            double hitboxW = Math.Max(6, enemy.Definition.Width * 0.74);
-            double hitboxH = Math.Max(6, enemy.Definition.Height * 0.76);
-            double hitboxX = enemy.X + ((enemy.Definition.Width - hitboxW) / 2.0);
-            double hitboxY = enemy.Y + (enemy.Definition.Height - hitboxH);
+            double maxHitboxW = Math.Max(6, enemy.Definition.Width);
+            double maxHitboxH = Math.Max(6, enemy.Definition.Height);
+            double hitboxW = enemy.Definition.CollisionHitboxWidth ?? (enemy.Definition.Width * 0.74);
+            double hitboxH = enemy.Definition.CollisionHitboxHeight ?? (enemy.Definition.Height * 0.76);
+            hitboxW = Math.Min(maxHitboxW, Math.Max(6, hitboxW));
+            hitboxH = Math.Min(maxHitboxH, Math.Max(6, hitboxH));
+
+            double defaultOffsetX = (enemy.Definition.Width - hitboxW) / 2.0;
+            double defaultOffsetY = enemy.Definition.Height - hitboxH;
+            double localOffsetX = enemy.Definition.CollisionHitboxOffsetX ?? defaultOffsetX;
+            double localOffsetY = enemy.Definition.CollisionHitboxOffsetY ?? defaultOffsetY;
+            localOffsetX = Math.Max(0, Math.Min(enemy.Definition.Width - hitboxW, localOffsetX));
+            localOffsetY = Math.Max(0, Math.Min(enemy.Definition.Height - hitboxH, localOffsetY));
+
+            double hitboxX = enemy.X + localOffsetX;
+            double hitboxY = enemy.Y + localOffsetY;
             return new Rect(hitboxX, hitboxY, hitboxW, hitboxH);
         }
 
