@@ -258,6 +258,10 @@ namespace TaskbarRPG
         public double Height { get; set; } = 24;
         public double AttackHitboxWidth { get; set; } = 24;
         public double AttackHitboxHeight { get; set; } = 14;
+        public double? CollisionHitboxWidth { get; set; }
+        public double? CollisionHitboxHeight { get; set; }
+        public double? CollisionHitboxOffsetX { get; set; }
+        public double? CollisionHitboxOffsetY { get; set; }
     }
 
     public class EnemyTemplate
@@ -273,6 +277,10 @@ namespace TaskbarRPG
         public double Height { get; set; } = 24;
         public double AttackHitboxWidth { get; set; } = 24;
         public double AttackHitboxHeight { get; set; } = 14;
+        public double? CollisionHitboxWidth { get; set; }
+        public double? CollisionHitboxHeight { get; set; }
+        public double? CollisionHitboxOffsetX { get; set; }
+        public double? CollisionHitboxOffsetY { get; set; }
         public HashSet<BiomeType>? AllowedBiomes { get; set; } = null;
         public List<(int Min, int Max)> StageRanges { get; set; } = new();
 
@@ -476,6 +484,10 @@ namespace TaskbarRPG
                     Height = Math.Max(10, chosen.Height),
                     AttackHitboxWidth = Math.Max(8, chosen.AttackHitboxWidth),
                     AttackHitboxHeight = Math.Max(6, chosen.AttackHitboxHeight),
+                    CollisionHitboxWidth = chosen.CollisionHitboxWidth,
+                    CollisionHitboxHeight = chosen.CollisionHitboxHeight,
+                    CollisionHitboxOffsetX = chosen.CollisionHitboxOffsetX,
+                    CollisionHitboxOffsetY = chosen.CollisionHitboxOffsetY,
                     Color = Color.FromRgb(
                         (byte)rng.Next(70, 210),
                         (byte)rng.Next(70, 210),
@@ -1465,110 +1477,95 @@ namespace TaskbarRPG
         private void LoadEnemyTemplates()
         {
             enemyTemplates.Clear();
-            string defsPath = IOPath.Combine(AppContext.BaseDirectory, "enemy_definitions.txt");
-
-            if (!System.IO.File.Exists(defsPath))
+            enemyTemplates.Add(new EnemyTemplate
             {
-                string seed =
-                    "# name;health;attackdamage;movespeed;level;biomes;stages;width(optional);height(optional);attackhitboxwidth(optional);attackhitboxheight(optional);behavior(optional);behaviorintervalframes(optional)\n" +
-                    "slime;10;4;0.9;1;plains;;16;28;18;16;hop_contact;135\n" +
-                    "bat;9;5;1.4;2;cave;;20;16;18;10;melee_chaser;38\n" +
-                    "wolf;14;6;1.35;4;forest;;48;46;34;16;dash_strike;32\n" +
-                    "crawler;18;8;1.1;6;cave;6-9;24;18;22;12;melee_chaser;34\n" +
-                    "frostling;22;10;1.0;8;tundra;6-9;20;30;22;16;melee_chaser;36";
-                System.IO.File.WriteAllText(defsPath, seed);
-            }
+                Name = "slime",
+                Health = 10,
+                AttackDamage = 4,
+                MoveSpeed = 0.9,
+                Level = 1,
+                AllowedBiomes = new HashSet<BiomeType> { BiomeType.Plains },
+                Width = 16,
+                Height = 28,
+                AttackHitboxWidth = 18,
+                AttackHitboxHeight = 16,
+                CollisionHitboxWidth = 16,
+                CollisionHitboxHeight = 20,
+                CollisionHitboxOffsetX = 0,
+                CollisionHitboxOffsetY = 8,
+                BehaviorIds = new List<string> { "hop_contact" },
+                BehaviorIntervalFrames = 135
+            });
 
-            foreach (var raw in System.IO.File.ReadAllLines(defsPath))
+            enemyTemplates.Add(new EnemyTemplate
             {
-                string line = raw.Trim();
-                if (line.Length == 0 || line.StartsWith("#")) continue;
+                Name = "bat",
+                Health = 9,
+                AttackDamage = 5,
+                MoveSpeed = 1.4,
+                Level = 2,
+                AllowedBiomes = new HashSet<BiomeType> { BiomeType.Cave },
+                Width = 20,
+                Height = 16,
+                AttackHitboxWidth = 18,
+                AttackHitboxHeight = 10,
+                BehaviorIds = new List<string> { "melee_chaser" },
+                BehaviorIntervalFrames = 38
+            });
 
-                string[] parts = line.Split(';');
-                if (parts.Length < 5) continue;
+            enemyTemplates.Add(new EnemyTemplate
+            {
+                Name = "wolf",
+                Health = 14,
+                AttackDamage = 6,
+                MoveSpeed = 1.35,
+                Level = 4,
+                AllowedBiomes = new HashSet<BiomeType> { BiomeType.Forest },
+                Width = 48,
+                Height = 46,
+                AttackHitboxWidth = 34,
+                AttackHitboxHeight = 16,
+                CollisionHitboxWidth = 34,
+                CollisionHitboxHeight = 20,
+                CollisionHitboxOffsetX = 7,
+                CollisionHitboxOffsetY = 26,
+                BehaviorIds = new List<string> { "dash_strike" },
+                BehaviorIntervalFrames = 32
+            });
 
-                if (!int.TryParse(parts[1], out int hp)) continue;
-                if (!int.TryParse(parts[2], out int atk)) continue;
-                if (!double.TryParse(parts[3], out double speed)) continue;
-                if (!int.TryParse(parts[4], out int level)) continue;
+            enemyTemplates.Add(new EnemyTemplate
+            {
+                Name = "crawler",
+                Health = 18,
+                AttackDamage = 8,
+                MoveSpeed = 1.1,
+                Level = 6,
+                AllowedBiomes = new HashSet<BiomeType> { BiomeType.Cave },
+                StageRanges = new List<(int Min, int Max)> { (6, 9) },
+                Width = 24,
+                Height = 18,
+                AttackHitboxWidth = 22,
+                AttackHitboxHeight = 12,
+                BehaviorIds = new List<string> { "melee_chaser" },
+                BehaviorIntervalFrames = 34
+            });
 
-                var template = new EnemyTemplate
-                {
-                    Name = parts[0].Trim(),
-                    Health = hp,
-                    AttackDamage = atk,
-                    MoveSpeed = speed,
-                    Level = level,
-                };
-
-                if (parts.Length >= 6 && !string.IsNullOrWhiteSpace(parts[5]))
-                {
-                    var biomes = new HashSet<BiomeType>();
-                    foreach (string token in parts[5].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                    {
-                        if (token == "*") { biomes.Clear(); break; }
-                        if (Enum.TryParse<BiomeType>(token, true, out var biome))
-                            biomes.Add(biome);
-                    }
-                    if (biomes.Count > 0)
-                        template.AllowedBiomes = biomes;
-                }
-
-                if (parts.Length >= 7 && !string.IsNullOrWhiteSpace(parts[6]))
-                {
-                    foreach (string token in parts[6].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                    {
-                        if (token == "*")
-                        {
-                            template.StageRanges.Clear();
-                            break;
-                        }
-
-                        string[] range = token.Split('-', StringSplitOptions.TrimEntries);
-                        if (range.Length == 1 && int.TryParse(range[0], out int exact))
-                            template.StageRanges.Add((exact, exact));
-                        else if (range.Length == 2 &&
-                                 int.TryParse(range[0], out int min) &&
-                                 int.TryParse(range[1], out int max))
-                            template.StageRanges.Add((Math.Min(min, max), Math.Max(min, max)));
-                    }
-                }
-
-                if (parts.Length >= 8 && double.TryParse(parts[7], out double parsedWidth))
-                    template.Width = Math.Max(10, parsedWidth);
-
-                if (parts.Length >= 9 && double.TryParse(parts[8], out double parsedHeight))
-                    template.Height = Math.Max(10, parsedHeight);
-
-                if (parts.Length >= 10 && double.TryParse(parts[9], out double parsedAttackWidth))
-                    template.AttackHitboxWidth = Math.Max(6, parsedAttackWidth);
-
-                if (parts.Length >= 11 && double.TryParse(parts[10], out double parsedAttackHeight))
-                    template.AttackHitboxHeight = Math.Max(6, parsedAttackHeight);
-
-                if (parts.Length >= 12 && !string.IsNullOrWhiteSpace(parts[11]))
-                {
-                    var parsedBehaviors = parts[11]
-                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                        .Select(b => b.Trim().ToLowerInvariant())
-                        .Where(b => b.Length > 0)
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .ToList();
-                    if (parsedBehaviors.Count > 0)
-                        template.BehaviorIds = parsedBehaviors;
-                }
-
-                if (parts.Length >= 13 && int.TryParse(parts[12], out int parsedIntervalFrames))
-                    template.BehaviorIntervalFrames = Math.Max(8, parsedIntervalFrames);
-
-                template.AttackHitboxWidth = Math.Max(6, template.AttackHitboxWidth);
-                template.AttackHitboxHeight = Math.Max(6, template.AttackHitboxHeight);
-                template.BehaviorIntervalFrames = Math.Max(8, template.BehaviorIntervalFrames);
-                if (template.BehaviorIds.Count == 0)
-                    template.BehaviorIds = new List<string> { "melee_chaser" };
-
-                enemyTemplates.Add(template);
-            }
+            enemyTemplates.Add(new EnemyTemplate
+            {
+                Name = "frostling",
+                Health = 22,
+                AttackDamage = 10,
+                MoveSpeed = 1.0,
+                Level = 8,
+                AllowedBiomes = new HashSet<BiomeType> { BiomeType.Tundra },
+                StageRanges = new List<(int Min, int Max)> { (6, 9) },
+                Width = 20,
+                Height = 30,
+                AttackHitboxWidth = 22,
+                AttackHitboxHeight = 16,
+                BehaviorIds = new List<string> { "melee_chaser" },
+                BehaviorIntervalFrames = 36
+            });
         }
 
         private void LoadBossTemplates()
@@ -4577,10 +4574,22 @@ namespace TaskbarRPG
 
         private Rect GetEnemyCollisionRect(SpawnedEnemy enemy)
         {
-            double hitboxW = Math.Max(6, enemy.Definition.Width * 0.74);
-            double hitboxH = Math.Max(6, enemy.Definition.Height * 0.76);
-            double hitboxX = enemy.X + ((enemy.Definition.Width - hitboxW) / 2.0);
-            double hitboxY = enemy.Y + (enemy.Definition.Height - hitboxH);
+            double maxHitboxW = Math.Max(6, enemy.Definition.Width);
+            double maxHitboxH = Math.Max(6, enemy.Definition.Height);
+            double hitboxW = enemy.Definition.CollisionHitboxWidth ?? (enemy.Definition.Width * 0.74);
+            double hitboxH = enemy.Definition.CollisionHitboxHeight ?? (enemy.Definition.Height * 0.76);
+            hitboxW = Math.Min(maxHitboxW, Math.Max(6, hitboxW));
+            hitboxH = Math.Min(maxHitboxH, Math.Max(6, hitboxH));
+
+            double defaultOffsetX = (enemy.Definition.Width - hitboxW) / 2.0;
+            double defaultOffsetY = enemy.Definition.Height - hitboxH;
+            double localOffsetX = enemy.Definition.CollisionHitboxOffsetX ?? defaultOffsetX;
+            double localOffsetY = enemy.Definition.CollisionHitboxOffsetY ?? defaultOffsetY;
+            localOffsetX = Math.Max(0, Math.Min(enemy.Definition.Width - hitboxW, localOffsetX));
+            localOffsetY = Math.Max(0, Math.Min(enemy.Definition.Height - hitboxH, localOffsetY));
+
+            double hitboxX = enemy.X + localOffsetX;
+            double hitboxY = enemy.Y + localOffsetY;
             return new Rect(hitboxX, hitboxY, hitboxW, hitboxH);
         }
 

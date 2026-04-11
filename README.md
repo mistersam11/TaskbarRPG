@@ -1,13 +1,12 @@
 # TaskbarRPG
 
-Small WPF taskbar RPG with stage-based progression, data-driven enemies/items, and editable config/save files.
+Small WPF taskbar RPG with stage-based progression, hardcoded enemies, and editable config/save files.
 
 ## Data files
 
 All runtime-editable files are copied to output and loaded from the executable directory:
 
 - `TaskbarRPG/gameconfig.json`
-- `TaskbarRPG/enemy_definitions.txt`
 - `TaskbarRPG/boss_definitions.txt`
 - `TaskbarRPG/area_definitions.txt`
 - `TaskbarRPG/item_definitions.txt`
@@ -24,22 +23,10 @@ Common keys:
 
 Arrow projectile tuning is no longer part of `gameconfig.json`; arrow speed/hitbox behavior is now controlled by in-code constants.
 
-## Enemy definitions (`enemy_definitions.txt`)
+## Enemies
 
-One enemy per line:
-
-```txt
-name;health;attackdamage;movespeed;level;biomes;stages;width(optional);height(optional);attackhitboxwidth(optional);attackhitboxheight(optional);behavior(optional);behaviorintervalframes(optional)
-```
-
-- Required: first 5 columns.
-- Optional:
-  - `biomes`: comma-separated (`plains,cave,forest,tundra`) or `*`
-  - `stages`: comma/range list (`1-4,8,12-15`) or `*`
-  - `width`,`height`: collision width and draw height
-  - `attackhitboxwidth`,`attackhitboxheight`: attack collision tuning
-  - `behavior`: `melee_chaser`, `hop_contact`, `dash_strike`, or comma-separated behavior list
-  - `behaviorintervalframes`: timing/cooldown tuning for attacks/hops
+Enemy templates are now hardcoded in `MainWindow.xaml.cs` (`LoadEnemyTemplates`) instead of loaded from `enemy_definitions.txt`.  
+To tune enemy stats/behavior, edit the `EnemyTemplate` entries directly in code.
 
 ## Boss definitions (`boss_definitions.txt`)
 
@@ -65,7 +52,7 @@ name;stages;enemies;colorHex(optional)
 
 - `name`: display name of area.
 - `stages`: where this area can appear (`1-4,16-19` etc).
-- `enemies`: comma-separated enemy names from `enemy_definitions.txt`.
+- `enemies`: comma-separated enemy names from the built-in hardcoded enemy templates.
 - `colorHex`: optional ground color (`RRGGBB`).
 
 ## Item definitions (`item_definitions.txt`)
