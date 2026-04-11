@@ -96,6 +96,7 @@ Player animations support any number of frames using `player_<action><index>.png
 | Player idle | `Assets/Player` | `player_idle1.png`, `player_idle2.png`, ... (fallback: `player_idle.png`) | `32x32` |
 | Player walk | `Assets/Player` | `player_walk1.png`, `player_walk2.png`, ... | `32x32` |
 | Player attack | `Assets/Player` | `player_attack1.png`, `player_attack2.png`, ... (fallback: `player_attack.png`) | `64x32` (or wider, 32 high) |
+| Player down-attack | `Assets/Player` | `player_attack_down1.png`, `player_attack_down2.png`, ... (fallback: normal attack frames) | `32x64` (or taller, 32 wide) |
 | Player bow charge stage 1 (optional) | `Assets/Player` | `player_bow_charge1_1.png`, `player_bow_charge1_2.png`, ... | `64x32` (or wider, 32 high) |
 | Player bow charge stage 2 (optional) | `Assets/Player` | `player_bow_charge2_1.png`, `player_bow_charge2_2.png`, ... | `64x32` |
 | Player bow charge stage 3 (optional) | `Assets/Player` | `player_bow_charge3_1.png`, `player_bow_charge3_2.png`, ... | `64x32` |
@@ -120,6 +121,7 @@ Player animations support any number of frames using `player_<action><index>.png
 - `F8` toggle game on/off.
 - `ESC` opens system menu (or closes it if already open).
 - `C` closes whichever panel/menu is currently open (does not open the system menu).
+- Hold `Down` + press `Z` to perform a downward melee attack (uses `player_attack_down*` if present, otherwise normal attack frames).
 - Hold `X` to draw the bow (up to 2 seconds), release to fire. More charge = much higher damage/range and flatter trajectory; low-charge arrows drop quickly, while fully charged arrows travel dramatically farther.
 - While system/reset menus are open:
   - `1` Save
