@@ -1477,126 +1477,93 @@ namespace TaskbarRPG
         private void LoadEnemyTemplates()
         {
             enemyTemplates.Clear();
-            string defsPath = IOPath.Combine(AppContext.BaseDirectory, "enemy_definitions.txt");
-
-            if (!System.IO.File.Exists(defsPath))
+            enemyTemplates.AddRange(new[]
             {
-                string seed =
-                    "# name;health;attackdamage;movespeed;level;biomes;stages;width(optional);height(optional);attackhitboxwidth(optional);attackhitboxheight(optional);behavior(optional);behaviorintervalframes(optional);collisionhitboxwidth(optional);collisionhitboxheight(optional);collisionhitboxoffsetx(optional);collisionhitboxoffsety(optional)\n" +
-                    "slime;10;4;0.9;1;plains;;16;28;18;16;hop_contact;135\n" +
-                    "bat;9;5;1.4;2;cave;;20;16;18;10;melee_chaser;38\n" +
-                    "wolf;14;6;1.35;4;forest;;48;46;34;16;dash_strike;32\n" +
-                    "crawler;18;8;1.1;6;cave;6-9;24;18;22;12;melee_chaser;34\n" +
-                    "frostling;22;10;1.0;8;tundra;6-9;20;30;22;16;melee_chaser;36";
-                System.IO.File.WriteAllText(defsPath, seed);
-            }
-
-            foreach (var raw in System.IO.File.ReadAllLines(defsPath))
-            {
-                string line = raw.Trim();
-                if (line.Length == 0 || line.StartsWith("#")) continue;
-
-                string[] parts = line.Split(';');
-                if (parts.Length < 5) continue;
-
-                if (!int.TryParse(parts[1], out int hp)) continue;
-                if (!int.TryParse(parts[2], out int atk)) continue;
-                if (!double.TryParse(parts[3], out double speed)) continue;
-                if (!int.TryParse(parts[4], out int level)) continue;
-
-                var template = new EnemyTemplate
+                new EnemyTemplate
                 {
-                    Name = parts[0].Trim(),
-                    Health = hp,
-                    AttackDamage = atk,
-                    MoveSpeed = speed,
-                    Level = level,
-                };
-
-                if (parts.Length >= 6 && !string.IsNullOrWhiteSpace(parts[5]))
+                    Name = "slime",
+                    Health = 10,
+                    AttackDamage = 4,
+                    MoveSpeed = 0.9,
+                    Level = 1,
+                    AllowedBiomes = new HashSet<BiomeType> { BiomeType.Plains },
+                    Width = 16,
+                    Height = 28,
+                    AttackHitboxWidth = 18,
+                    AttackHitboxHeight = 16,
+                    BehaviorIds = new List<string> { "hop_contact" },
+                    BehaviorIntervalFrames = 135,
+                    CollisionHitboxWidth = 16,
+                    CollisionHitboxHeight = 24,
+                    CollisionHitboxOffsetX = 0,
+                    CollisionHitboxOffsetY = 0,
+                },
+                new EnemyTemplate
                 {
-                    var biomes = new HashSet<BiomeType>();
-                    foreach (string token in parts[5].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                    {
-                        if (token == "*") { biomes.Clear(); break; }
-                        if (Enum.TryParse<BiomeType>(token, true, out var biome))
-                            biomes.Add(biome);
-                    }
-                    if (biomes.Count > 0)
-                        template.AllowedBiomes = biomes;
-                }
-
-                if (parts.Length >= 7 && !string.IsNullOrWhiteSpace(parts[6]))
+                    Name = "bat",
+                    Health = 9,
+                    AttackDamage = 5,
+                    MoveSpeed = 1.4,
+                    Level = 2,
+                    AllowedBiomes = new HashSet<BiomeType> { BiomeType.Cave },
+                    Width = 20,
+                    Height = 16,
+                    AttackHitboxWidth = 18,
+                    AttackHitboxHeight = 10,
+                    BehaviorIds = new List<string> { "melee_chaser" },
+                    BehaviorIntervalFrames = 38,
+                },
+                new EnemyTemplate
                 {
-                    foreach (string token in parts[6].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                    {
-                        if (token == "*")
-                        {
-                            template.StageRanges.Clear();
-                            break;
-                        }
-
-                        string[] range = token.Split('-', StringSplitOptions.TrimEntries);
-                        if (range.Length == 1 && int.TryParse(range[0], out int exact))
-                            template.StageRanges.Add((exact, exact));
-                        else if (range.Length == 2 &&
-                                 int.TryParse(range[0], out int min) &&
-                                 int.TryParse(range[1], out int max))
-                            template.StageRanges.Add((Math.Min(min, max), Math.Max(min, max)));
-                    }
-                }
-
-                if (parts.Length >= 8 && double.TryParse(parts[7], out double parsedWidth))
-                    template.Width = Math.Max(10, parsedWidth);
-
-                if (parts.Length >= 9 && double.TryParse(parts[8], out double parsedHeight))
-                    template.Height = Math.Max(10, parsedHeight);
-
-                if (parts.Length >= 10 && double.TryParse(parts[9], out double parsedAttackWidth))
-                    template.AttackHitboxWidth = Math.Max(6, parsedAttackWidth);
-
-                if (parts.Length >= 11 && double.TryParse(parts[10], out double parsedAttackHeight))
-                    template.AttackHitboxHeight = Math.Max(6, parsedAttackHeight);
-
-                if (parts.Length >= 12 && !string.IsNullOrWhiteSpace(parts[11]))
+                    Name = "wolf",
+                    Health = 14,
+                    AttackDamage = 6,
+                    MoveSpeed = 1.35,
+                    Level = 4,
+                    AllowedBiomes = new HashSet<BiomeType> { BiomeType.Forest },
+                    Width = 48,
+                    Height = 46,
+                    AttackHitboxWidth = 34,
+                    AttackHitboxHeight = 16,
+                    BehaviorIds = new List<string> { "dash_strike" },
+                    BehaviorIntervalFrames = 32,
+                    CollisionHitboxWidth = 36,
+                    CollisionHitboxHeight = 26,
+                    CollisionHitboxOffsetY = 20,
+                },
+                new EnemyTemplate
                 {
-                    var parsedBehaviors = parts[11]
-                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                        .Select(b => b.Trim().ToLowerInvariant())
-                        .Where(b => b.Length > 0)
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .ToList();
-                    if (parsedBehaviors.Count > 0)
-                        template.BehaviorIds = parsedBehaviors;
-                }
-
-                if (parts.Length >= 13 && int.TryParse(parts[12], out int parsedIntervalFrames))
-                    template.BehaviorIntervalFrames = Math.Max(8, parsedIntervalFrames);
-
-                if (parts.Length >= 14 && double.TryParse(parts[13], out double parsedCollisionWidth))
-                    template.CollisionHitboxWidth = Math.Max(6, parsedCollisionWidth);
-
-                if (parts.Length >= 15 && double.TryParse(parts[14], out double parsedCollisionHeight))
-                    template.CollisionHitboxHeight = Math.Max(6, parsedCollisionHeight);
-
-                if (parts.Length >= 16 && double.TryParse(parts[15], out double parsedCollisionOffsetX))
-                    template.CollisionHitboxOffsetX = parsedCollisionOffsetX;
-
-                if (parts.Length >= 17 && double.TryParse(parts[16], out double parsedCollisionOffsetY))
-                    template.CollisionHitboxOffsetY = parsedCollisionOffsetY;
-
-                template.AttackHitboxWidth = Math.Max(6, template.AttackHitboxWidth);
-                template.AttackHitboxHeight = Math.Max(6, template.AttackHitboxHeight);
-                if (template.CollisionHitboxWidth.HasValue)
-                    template.CollisionHitboxWidth = Math.Min(template.Width, Math.Max(6, template.CollisionHitboxWidth.Value));
-                if (template.CollisionHitboxHeight.HasValue)
-                    template.CollisionHitboxHeight = Math.Min(template.Height, Math.Max(6, template.CollisionHitboxHeight.Value));
-                template.BehaviorIntervalFrames = Math.Max(8, template.BehaviorIntervalFrames);
-                if (template.BehaviorIds.Count == 0)
-                    template.BehaviorIds = new List<string> { "melee_chaser" };
-
-                enemyTemplates.Add(template);
-            }
+                    Name = "crawler",
+                    Health = 18,
+                    AttackDamage = 8,
+                    MoveSpeed = 1.1,
+                    Level = 6,
+                    AllowedBiomes = new HashSet<BiomeType> { BiomeType.Cave },
+                    StageRanges = new List<(int Min, int Max)> { (6, 9) },
+                    Width = 24,
+                    Height = 18,
+                    AttackHitboxWidth = 22,
+                    AttackHitboxHeight = 12,
+                    BehaviorIds = new List<string> { "melee_chaser" },
+                    BehaviorIntervalFrames = 34,
+                },
+                new EnemyTemplate
+                {
+                    Name = "frostling",
+                    Health = 22,
+                    AttackDamage = 10,
+                    MoveSpeed = 1.0,
+                    Level = 8,
+                    AllowedBiomes = new HashSet<BiomeType> { BiomeType.Tundra },
+                    StageRanges = new List<(int Min, int Max)> { (6, 9) },
+                    Width = 20,
+                    Height = 30,
+                    AttackHitboxWidth = 22,
+                    AttackHitboxHeight = 16,
+                    BehaviorIds = new List<string> { "melee_chaser" },
+                    BehaviorIntervalFrames = 36,
+                },
+            });
         }
 
         private void LoadBossTemplates()
