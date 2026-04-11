@@ -1,5 +1,5 @@
 {
-  "Debug": false,
+  "Debug": true,
   "AttackPosition": 16,
   "PlayerHitboxWidth": 16,
   "PlayerHitboxHeight": 28,

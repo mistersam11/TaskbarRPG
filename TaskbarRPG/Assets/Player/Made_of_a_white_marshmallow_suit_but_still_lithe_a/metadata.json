@@ -1,0 +1,75 @@
+{
+  "character": {
+    "id": "ef9df1b5-a46c-4002-8ddb-d652ac46f6ca",
+    "name": "Made of a white marshmallow suit, but still lithe and agile, and able to wield a sword and shoot a bow.",
+    "prompt": "Made of a white marshmallow suit, but still lithe and agile, and able to wield a sword and shoot a bow.",
+    "size": {
+      "width": 48,
+      "height": 48
+    },
+    "template_id": "mannequin",
+    "directions": 4,
+    "view": "side",
+    "created_at": "2026-04-09T18:48:00.390923+00:00"
+  },
+  "frames": {
+    "rotations": {
+      "south": "rotations/south.png",
+      "west": "rotations/west.png",
+      "east": "rotations/east.png",
+      "north": "rotations/north.png"
+    },
+    "animations": {
+      "The_figure_stands_steady_before_quickly_drawing_it-4530926d": {
+        "east": [
+          "animations/The_figure_stands_steady_before_quickly_drawing_it-4530926d/east/frame_000.png",
+          "animations/The_figure_stands_steady_before_quickly_drawing_it-4530926d/east/frame_001.png",
+          "animations/The_figure_stands_steady_before_quickly_drawing_it-4530926d/east/frame_002.png",
+          "animations/The_figure_stands_steady_before_quickly_drawing_it-4530926d/east/frame_003.png",
+          "animations/The_figure_stands_steady_before_quickly_drawing_it-4530926d/east/frame_004.png",
+          "animations/The_figure_stands_steady_before_quickly_drawing_it-4530926d/east/frame_005.png",
+          "animations/The_figure_stands_steady_before_quickly_drawing_it-4530926d/east/frame_006.png",
+          "animations/The_figure_stands_steady_before_quickly_drawing_it-4530926d/east/frame_007.png",
+          "animations/The_figure_stands_steady_before_quickly_drawing_it-4530926d/east/frame_008.png"
+        ]
+      },
+      "The_character_stands_in_profile_and_holds_a_bow_wi-a02a4742": {
+        "east": [
+          "animations/The_character_stands_in_profile_and_holds_a_bow_wi-a02a4742/east/frame_000.png",
+          "animations/The_character_stands_in_profile_and_holds_a_bow_wi-a02a4742/east/frame_001.png",
+          "animations/The_character_stands_in_profile_and_holds_a_bow_wi-a02a4742/east/frame_002.png",
+          "animations/The_character_stands_in_profile_and_holds_a_bow_wi-a02a4742/east/frame_003.png",
+          "animations/The_character_stands_in_profile_and_holds_a_bow_wi-a02a4742/east/frame_004.png",
+          "animations/The_character_stands_in_profile_and_holds_a_bow_wi-a02a4742/east/frame_005.png"
+        ]
+      },
+      "Fight_Stance_Idle-a14e4bd6": {
+        "east": [
+          "animations/Fight_Stance_Idle-a14e4bd6/east/frame_000.png",
+          "animations/Fight_Stance_Idle-a14e4bd6/east/frame_001.png",
+          "animations/Fight_Stance_Idle-a14e4bd6/east/frame_002.png",
+          "animations/Fight_Stance_Idle-a14e4bd6/east/frame_003.png",
+          "animations/Fight_Stance_Idle-a14e4bd6/east/frame_004.png",
+          "animations/Fight_Stance_Idle-a14e4bd6/east/frame_005.png",
+          "animations/Fight_Stance_Idle-a14e4bd6/east/frame_006.png",
+          "animations/Fight_Stance_Idle-a14e4bd6/east/frame_007.png"
+        ]
+      },
+      "Jumping-42b57df5": {
+        "east": [
+          "animations/Jumping-42b57df5/east/frame_000.png",
+          "animations/Jumping-42b57df5/east/frame_001.png",
+          "animations/Jumping-42b57df5/east/frame_002.png",
+          "animations/Jumping-42b57df5/east/frame_003.png",
+          "animations/Jumping-42b57df5/east/frame_004.png",
+          "animations/Jumping-42b57df5/east/frame_005.png",
+          "animations/Jumping-42b57df5/east/frame_006.png",
+          "animations/Jumping-42b57df5/east/frame_007.png",
+          "animations/Jumping-42b57df5/east/frame_008.png"
+        ]
+      }
+    }
+  },
+  "export_version": "2.0",
+  "export_date": "2026-04-09T19:14:36.373026"
+}
