@@ -89,22 +89,26 @@ name;damage;cooldown
 ## Sprite guide
 
 Player sprites are loaded from `Assets/Player` in the executable directory first, then fall back to built-in resources if missing.  
-Player animations support any number of frames using `player_<action><index>.png` naming (for example `player_idle1.png`, `player_idle2.png`, ...).
+Most player animations support any number of frames using `player_<action><index>.png` naming (for example `player_idle1.png`, `player_idle2.png`, ...). Bow charge now also supports dedicated stationary and walking variants so the player can keep moving their legs while the bow is drawn.
 
 | Type | Folder | Naming | Suggested Resolution |
 |---|---|---|---|
 | Player idle | `Assets/Player` | `player_idle1.png`, `player_idle2.png`, ... (fallback: `player_idle.png`) | `32x32` |
 | Player walk | `Assets/Player` | `player_walk1.png`, `player_walk2.png`, ... | `32x32` |
 | Player attack | `Assets/Player` | `player_attack1.png`, `player_attack2.png`, ... (fallback: `player_attack.png`) | `64x32` (or wider, 32 high) |
-| Player down-attack | `Assets/Player` | `player_attack_down1.png`, `player_attack_down2.png`, ... (fallback: normal attack frames) | `32x64` (or taller, 32 wide) |
-| Player bow charge stage 1 (optional) | `Assets/Player` | `player_bow_charge1_1.png`, `player_bow_charge1_2.png`, ... | `64x32` (or wider, 32 high) |
-| Player bow charge stage 2 (optional) | `Assets/Player` | `player_bow_charge2_1.png`, `player_bow_charge2_2.png`, ... | `64x32` |
-| Player bow charge stage 3 (optional) | `Assets/Player` | `player_bow_charge3_1.png`, `player_bow_charge3_2.png`, ... | `64x32` |
-| Player bow full-charge loop (optional) | `Assets/Player` | `player_bow_full1.png`, `player_bow_full2.png`, ... | `64x32` |
+| Player down-attack | `Assets/Player` | `player_attack_down1.png`, `player_attack_down2.png`, ... (fallback: normal attack frames) | `64x32` (or wider, 32 high) |
+| Player bow charge stage 1 hold | `Assets/Player` | `player_bow_charge1.png` | `64x32` |
+| Player bow charge stage 1 walk loop (optional) | `Assets/Player` | `player_bow_charge1_walk1.png`, `player_bow_charge1_walk2.png`, ... | `64x32` |
+| Player bow charge stage 2 hold | `Assets/Player` | `player_bow_charge2.png` | `64x32` |
+| Player bow charge stage 2 walk loop (optional) | `Assets/Player` | `player_bow_charge2_walk1.png`, `player_bow_charge2_walk2.png`, ... | `64x32` |
+| Player bow charge stage 3 hold | `Assets/Player` | `player_bow_charge3.png` | `64x32` |
+| Player bow charge stage 3 walk loop (optional) | `Assets/Player` | `player_bow_charge3_walk1.png`, `player_bow_charge3_walk2.png`, ... | `64x32` |
+| Player bow full-charge loop | `Assets/Player` | `player_bow_full1.png`, `player_bow_full2.png`, ... | `64x32` |
+| Player bow full-charge walk loop (optional) | `Assets/Player` | `player_bow_full_walk1.png`, `player_bow_full_walk2.png`, ... | `64x32` |
 | Player jump (optional) | `Assets/Player` | `player_jump1.png`, `player_jump2.png`, ... | `32x32` |
 | Player damaged (optional) | `Assets/Player` | `player_damaged1.png`, `player_damaged2.png`, ... | `32x32` |
-| Player arrow (normal shot) | `Assets/Player` | `player_arrow1.png`, `player_arrow2.png`, ... (fallback: `arrow.png`) | `16x16` |
-| Player arrow (max charge shot) | `Assets/Player` | `player_arrow_max1.png`, `player_arrow_max2.png`, ... | `16x16` |
+| Player arrow (normal shot) | `Assets/Player` | `player_arrow1.png`, `player_arrow2.png`, ... (fallback: `arrow.png`) | `32x32` |
+| Player arrow (max charge shot) | `Assets/Player` | `player_arrow_max1.png`, `player_arrow_max2.png`, ... | `32x32` |
 | Enemy walk frames | `Assets/Enemy` | `<name>_walk1.png`, `<name>_walk2.png`, ... | `~18x24` visual target |
 | Enemy attack frames (generic fallback) | `Assets/Enemy` | `<name>_attack1.png`, `<name>_attack2.png`, ... | any size; in-game width follows frame aspect ratio |
 | Enemy behavior attack frames | `Assets/Enemy` | `<name>_<behavior>_attack1.png`, `<name>_<behavior>_attack2.png`, ... (e.g. `wolf_dash_strike_attack1.png`) | any size; used when that behavior is active |

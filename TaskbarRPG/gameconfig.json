@@ -1,6 +1,6 @@
 {
-  "Debug": true,
-  "AttackPosition": 16,
+  "Debug": false,
+  "AttackPosition": 20,
   "PlayerHitboxWidth": 16,
   "PlayerHitboxHeight": 28,
   "MoveSpeed": 4.4,
