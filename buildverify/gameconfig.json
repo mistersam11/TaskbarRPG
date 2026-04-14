@@ -1,0 +1,10 @@
+{
+  "Debug": false,
+  "AttackPosition": 20,
+  "PlayerHitboxWidth": 16,
+  "PlayerHitboxHeight": 28,
+  "MoveSpeed": 4.4,
+  "Gravity": 0.8,
+  "JumpStrength": -12.4,
+  "StatusFrames": 60
+}

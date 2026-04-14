@@ -1,0 +1,9 @@
+# name;level;cooldown
+Rusty Sword;2;20
+Copper Sword;3;18
+Iron Sword;4;22
+Steel Sword;5;18
+Oak Bow;2;30
+Hunter Bow;3;25
+War Bow;4;25
+Long Bow;5;30
