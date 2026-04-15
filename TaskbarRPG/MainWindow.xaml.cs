@@ -997,6 +997,7 @@ namespace TaskbarRPG
         public int AnimationFrameCounter;
         public bool IsAlive = true;
         public bool HasAppliedDamage = false;
+        public bool DespawnWhenTopTouchesGround = false;
     }
 
     public class SpawnedEnemyHazard
@@ -1005,18 +1006,22 @@ namespace TaskbarRPG
         public FrameworkElement Body = null!;
         public Image? BodySprite = null;
         public Rectangle Hitbox = null!;
+        public Ellipse? TelegraphGlow = null;
         public List<BitmapImage> RiseFrames { get; set; } = new();
         public List<BitmapImage> SinkFrames { get; set; } = new();
         public double X;
         public double Y;
         public double Width;
         public double Height;
+        public double TelegraphGlowWidth;
+        public double TelegraphGlowHeight;
         public double HitboxWidth;
         public double HitboxHeight;
         public double HitboxOffsetX;
         public double HitboxOffsetY;
         public int Damage;
         public int DelayFrames;
+        public int InitialDelayFrames;
         public int PhaseTick;
         public int HoldFrames;
         public int RiseDurationFrames = 7;
@@ -1025,6 +1030,25 @@ namespace TaskbarRPG
         public EnemyHazardPhase Phase = EnemyHazardPhase.Delay;
         public bool IsAlive = true;
         public bool HasAppliedDamage = false;
+    }
+
+    public class TransientVisualEffect
+    {
+        public FrameworkElement Body = null!;
+        public double X;
+        public double Y;
+        public double BaseWidth;
+        public double BaseHeight;
+        public double HorizontalVelocity;
+        public double VerticalVelocity;
+        public double GravityPerFrame;
+        public int AgeFrames;
+        public int LifetimeFrames = 12;
+        public double StartOpacity = 1.0;
+        public double EndOpacity = 0.0;
+        public double StartScale = 1.0;
+        public double EndScale = 0.0;
+        public bool IsAlive = true;
     }
 
     // ---------------------------------------------------------------------------
@@ -1680,6 +1704,7 @@ namespace TaskbarRPG
         private readonly List<SpawnedEnemyHazard> activeEnemyHazards = new();
         private readonly List<SpawnedEnemyProjectile> activeEnemyProjectiles = new();
         private readonly List<ArrowProjectile> activeProjectiles = new();
+        private readonly List<TransientVisualEffect> activeVisualEffects = new();
         private readonly List<AreaTemplate> areaTemplates = new();
         private readonly List<EnemyTemplate> enemyTemplates = new();
         private readonly List<BossTemplate> bossTemplates = new();
@@ -1747,17 +1772,23 @@ namespace TaskbarRPG
         private const int FrostlingIcicleRiseFrames = 7;
         private const int FrostlingIcicleHoldFrames = 8;
         private const int FrostlingIcicleSinkFrames = 8;
-        private const int FrostlingIcicleDelayStepFrames = 4;
-        private const int FrostlingIcicleBurstCount = 14;
+        private const int FrostlingIcicleDelayStepFrames = 2;
+        private const int FrostlingIcicleBurstCount = 28;
         private const int FrostlingIcicleDamage = 11;
         private const int FallenKnightSpikeTelegraphFrames = 26;
         private const int FallenKnightSpikeRiseFrames = 9;
         private const int FallenKnightSpikeHoldFrames = 10;
         private const int FallenKnightSpikeSinkFrames = 8;
         private const int FallenKnightSpikeDamage = 18;
+        private const int FallenKnightSpikeFieldSlotCount = 28;
+        private const int FallenKnightSpikeFieldMinSafeSlots = 1;
+        private const int FallenKnightSpikeFieldMaxSafeSlots = 2;
         private const int FallenKnightSnowballTelegraphDurationFrames = 24;
         private const int FallenKnightSnowballAttackBaseFrames = 56;
-        private const int FallenKnightSnowballVolleyCount = 6;
+        private const int FallenKnightSnowballVolleyCount = 10;
+        private const int FallenKnightSnowballFirstThrowTick = 6;
+        private const int FallenKnightSnowballThrowIntervalFrames = 7;
+        private const int FallenKnightSnowballRecoveryFrames = 16;
         private const int FallenKnightFireHeadTelegraphDurationFrames = 24;
         private const int FallenKnightFireHeadAttackDurationFrames = 34;
         private const int FallenKnightAttackCooldownFrames = 54;
@@ -1766,12 +1797,12 @@ namespace TaskbarRPG
         private const int FallenKnightHeadFireTowerMinJumpCount = 5;
         private const int FallenKnightHeadFireTowerMaxJumpCount = 7;
         private const double FallenKnightFixedX = 1180;
-        private const int FallenKnightHeadReturnDurationFrames = 18;
+        private const int FallenKnightHeadReturnDurationFrames = 102;
         private const double FallenKnightSnowballGravity = 0.18;
-        private const double FallenKnightSnowballBaseTravelFrames = 28;
-        private const double FallenKnightSnowballTravelFrameStep = 4;
-        private const double FallenKnightSnowballLandingSpreadBase = 52;
-        private const double FallenKnightSnowballLandingSpreadStep = 18;
+        private const double FallenKnightSnowballBaseTravelFrames = 24;
+        private const double FallenKnightSnowballTravelFrameStep = 2.75;
+        private const double FallenKnightSnowballLandingSpreadBase = 86;
+        private const double FallenKnightSnowballLandingSpreadStep = 24;
         private const int FallenKnightHeadJumpMinAirFrames = 20;
         private const int FallenKnightHeadJumpMaxAirFrames = 36;
         private const double FallenKnightHeadJumpMinDistance = 84;
@@ -1790,9 +1821,12 @@ namespace TaskbarRPG
         private const double FallenKnightReassemblyStartScaleX = 0.86;
         private const double FallenKnightReassemblyStartScaleY = 0.48;
         private const double FallenKnightReassemblyLiftPixels = 36;
+        private const int FallenKnightReassemblyFlashCycleFrames = 18;
         private const double FallenKnightCollapsedHitboxHeight = 26;
         private const double FallenKnightCollapsedHitboxWidth = 92;
         private const double EnemyProjectileDefaultHitboxScale = 0.64;
+        private const int VisualEffectTrailLifetimeFrames = 14;
+        private const int VisualEffectBurstLifetimeFrames = 20;
         private const int EnemyDeathDefaultDurationFrames = 24;
         private const int SlimeDeathDurationFrames = 20;
         private const int WolfDeathDurationFrames = 22;
@@ -3102,6 +3136,7 @@ namespace TaskbarRPG
                 UpdateEnemyHazards();
                 UpdateEnemyProjectiles();
                 UpdateProjectiles();
+                UpdateVisualEffects();
                 HandleEnemyContactWithPlayer();
                 HandleEnemyHazardContactWithPlayer();
                 HandleEnemyProjectileContactWithPlayer();
@@ -3149,6 +3184,7 @@ namespace TaskbarRPG
             DrawInteractionIndicators();
             DrawEnemies();
             DrawEnemyHazards();
+            DrawVisualEffects();
             DrawEnemyProjectiles();
             DrawProjectiles();
         }
@@ -3955,6 +3991,7 @@ namespace TaskbarRPG
             ClearAreaZoneVisuals();
             ClearEnemies();
             ClearEnemyProjectiles();
+            ClearVisualEffects();
             ClearProjectiles();
             SpawnGroundDecorations(currentArea);
             SpawnAreaZones(currentArea);
@@ -4814,7 +4851,7 @@ namespace TaskbarRPG
 
             BitmapImage? firstFrame = enemy.HazardRiseFrames.FirstOrDefault() ?? enemy.HazardSinkFrames.FirstOrDefault();
             double spriteWidth = firstFrame?.PixelWidth > 0 ? firstFrame.PixelWidth : 28;
-            double spriteHeight = firstFrame?.PixelHeight > 0 ? firstFrame.PixelHeight : 56;
+            double spriteHeight = firstFrame?.PixelHeight > 0 ? firstFrame.PixelHeight : 92;
             double floorLineY = groundY + playerHeight;
             double hazardY = floorLineY - spriteHeight;
             double enemyCenterX = enemy.X + (enemy.Definition.Width / 2.0);
@@ -4824,8 +4861,8 @@ namespace TaskbarRPG
             double[] centerOffsets = Enumerable.Range(0, FrostlingIcicleBurstCount)
                 .Select(index => firstOffset + (index * spacing))
                 .ToArray();
-            double hitboxWidth = Math.Max(16, Math.Min(22, spriteWidth * 0.72));
-            double hitboxHeight = Math.Max(32, Math.Min(spriteHeight - 6, spriteHeight * 0.84));
+            double hitboxWidth = Math.Max(16, Math.Min(24, spriteWidth * 0.78));
+            double hitboxHeight = Math.Max(54, Math.Min(spriteHeight - 2, spriteHeight * 0.94));
 
             for (int index = 0; index < centerOffsets.Length; index++)
             {
@@ -4864,9 +4901,12 @@ namespace TaskbarRPG
                     StrokeThickness = gameConfig.Debug ? 1 : 0,
                     Visibility = Visibility.Hidden
                 };
+                Ellipse telegraphGlow = CreateHazardTelegraphGlow();
 
+                GameCanvas.Children.Add(telegraphGlow);
                 GameCanvas.Children.Add(body);
                 GameCanvas.Children.Add(hitbox);
+                Panel.SetZIndex(telegraphGlow, 12);
                 Panel.SetZIndex(body, 18);
                 Panel.SetZIndex(hitbox, 19);
 
@@ -4882,18 +4922,22 @@ namespace TaskbarRPG
                     Body = body,
                     BodySprite = bodySprite,
                     Hitbox = hitbox,
+                    TelegraphGlow = telegraphGlow,
                     RiseFrames = enemy.HazardRiseFrames,
                     SinkFrames = enemy.HazardSinkFrames,
                     X = hazardX,
                     Y = hazardY,
                     Width = spriteWidth,
                     Height = spriteHeight,
+                    TelegraphGlowWidth = Math.Max(28, spriteWidth * 1.35),
+                    TelegraphGlowHeight = 15,
                     HitboxWidth = hitboxWidth,
                     HitboxHeight = hitboxHeight,
                     HitboxOffsetX = Math.Max(0, (spriteWidth - hitboxWidth) / 2.0),
                     HitboxOffsetY = Math.Max(0, spriteHeight - hitboxHeight),
                     Damage = FrostlingIcicleDamage,
                     DelayFrames = index * FrostlingIcicleDelayStepFrames,
+                    InitialDelayFrames = index * FrostlingIcicleDelayStepFrames,
                     HoldFrames = FrostlingIcicleHoldFrames,
                     RiseDurationFrames = FrostlingIcicleRiseFrames,
                     SinkDurationFrames = FrostlingIcicleSinkFrames,
@@ -4916,11 +4960,11 @@ namespace TaskbarRPG
             double hazardY = floorLineY - spriteHeight;
             double hitboxWidth = Math.Max(16, Math.Min(26, spriteWidth * 0.66));
             double hitboxHeight = Math.Max(30, Math.Min(spriteHeight - 6, spriteHeight * 0.82));
-            const int slotCount = 14;
+            int slotCount = FallenKnightSpikeFieldSlotCount;
             double leftMargin = 44;
             double rightMargin = Math.Max(leftMargin + 1, Width - 52);
             double spacing = slotCount <= 1 ? 0 : (rightMargin - leftMargin) / (slotCount - 1);
-            int safeSlotCount = rng.Next(2, 4);
+            int safeSlotCount = rng.Next(FallenKnightSpikeFieldMinSafeSlots, FallenKnightSpikeFieldMaxSafeSlots + 1);
             var safeSlots = new HashSet<int>();
 
             while (safeSlots.Count < safeSlotCount)
@@ -4966,9 +5010,12 @@ namespace TaskbarRPG
                     StrokeThickness = gameConfig.Debug ? 1 : 0,
                     Visibility = Visibility.Hidden
                 };
+                Ellipse telegraphGlow = CreateHazardTelegraphGlow();
 
+                GameCanvas.Children.Add(telegraphGlow);
                 GameCanvas.Children.Add(body);
                 GameCanvas.Children.Add(hitbox);
+                Panel.SetZIndex(telegraphGlow, 12);
                 Panel.SetZIndex(body, 18);
                 Panel.SetZIndex(hitbox, 19);
 
@@ -4980,18 +5027,22 @@ namespace TaskbarRPG
                     Body = body,
                     BodySprite = bodySprite,
                     Hitbox = hitbox,
+                    TelegraphGlow = telegraphGlow,
                     RiseFrames = enemy.HazardRiseFrames,
                     SinkFrames = enemy.HazardSinkFrames,
                     X = hazardX,
                     Y = hazardY,
                     Width = spriteWidth,
                     Height = spriteHeight,
+                    TelegraphGlowWidth = Math.Max(30, spriteWidth * 1.45),
+                    TelegraphGlowHeight = 16,
                     HitboxWidth = hitboxWidth,
                     HitboxHeight = hitboxHeight,
                     HitboxOffsetX = Math.Max(0, (spriteWidth - hitboxWidth) / 2.0),
                     HitboxOffsetY = Math.Max(0, spriteHeight - hitboxHeight),
                     Damage = FallenKnightSpikeDamage,
                     DelayFrames = FallenKnightSpikeTelegraphFrames,
+                    InitialDelayFrames = FallenKnightSpikeTelegraphFrames,
                     HoldFrames = FallenKnightSpikeHoldFrames,
                     RiseDurationFrames = FallenKnightSpikeRiseFrames,
                     SinkDurationFrames = FallenKnightSpikeSinkFrames,
@@ -5015,11 +5066,22 @@ namespace TaskbarRPG
                 : drawX + (spriteWidth * 0.64);
             double startY = enemy.Y + enemy.SpriteGroundOffsetY + (enemy.Definition.Height * 0.22);
             double floorLineY = groundY + playerHeight;
+            double initialTravelEstimate = Math.Clamp(
+                FallenKnightSnowballBaseTravelFrames +
+                (Math.Abs(targetX - startX) / 20.0) +
+                (throwIndex * FallenKnightSnowballTravelFrameStep),
+                22,
+                64);
+            double leadFrames = initialTravelEstimate * GetRandomDouble(0.82, 1.18);
+            double predictedPlayerCenterX = targetX +
+                Math.Clamp(velocityX * leadFrames, -260, 260);
             double landingSpread = FallenKnightSnowballLandingSpreadBase + (throwIndex * FallenKnightSnowballLandingSpreadStep);
-            double horizontalMiss = (rng.NextDouble() < 0.5 ? -1.0 : 1.0) *
-                GetRandomDouble(landingSpread * 0.35, landingSpread);
+            double longOrShortBias = Math.Abs(velocityX) > 0.35
+                ? Math.Sign(velocityX) * GetRandomDouble(-landingSpread * 0.38, landingSpread * 0.72)
+                : 0;
+            double horizontalMiss = GetRandomDouble(-landingSpread * 0.86, landingSpread * 0.86);
             double targetCenterX = Math.Clamp(
-                targetX + horizontalMiss,
+                predictedPlayerCenterX + longOrShortBias + horizontalMiss,
                 bodyWidth / 2.0,
                 Math.Max(bodyWidth / 2.0, Width - (bodyWidth / 2.0)));
             double targetCenterY = floorLineY - Math.Max(6, bodyHeight * 0.35);
@@ -5027,15 +5089,15 @@ namespace TaskbarRPG
             double deltaY = targetCenterY - startY;
             double travelFrames = Math.Clamp(
                 FallenKnightSnowballBaseTravelFrames +
-                (Math.Abs(deltaX) / 20.0) +
+                (Math.Abs(deltaX) / 24.0) +
                 (throwIndex * FallenKnightSnowballTravelFrameStep) +
-                GetRandomDouble(-4, 6),
-                26,
-                76);
+                GetRandomDouble(-5, 4),
+                20,
+                60);
             double horizontalVelocity = deltaX / Math.Max(1, travelFrames);
             double gravityPerFrame = FallenKnightSnowballGravity +
-                (throwIndex * 0.012) +
-                GetRandomDouble(-0.02, 0.035);
+                (throwIndex * 0.014) +
+                GetRandomDouble(-0.018, 0.05);
             double verticalVelocity =
                 (deltaY - (gravityPerFrame * travelFrames * (travelFrames + 1) / 2.0)) /
                 Math.Max(1, travelFrames);
@@ -5087,7 +5149,8 @@ namespace TaskbarRPG
                 HitboxHeight = Math.Max(10, bodyHeight * EnemyProjectileDefaultHitboxScale),
                 Damage = damage,
                 AnimationFrameCounter = rng.Next(0, 9999),
-                IsAlive = true
+                IsAlive = true,
+                DespawnWhenTopTouchesGround = true
             });
         }
 
@@ -5425,6 +5488,7 @@ namespace TaskbarRPG
                 if (!hazard.IsAlive)
                     continue;
 
+                DrawEnemyHazardTelegraphGlow(hazard);
                 Canvas.SetLeft(hazard.Body, hazard.X);
                 Canvas.SetTop(hazard.Body, hazard.Y);
 
@@ -5480,6 +5544,8 @@ namespace TaskbarRPG
                 return;
 
             hazard.IsAlive = false;
+            if (hazard.TelegraphGlow != null)
+                GameCanvas.Children.Remove(hazard.TelegraphGlow);
             GameCanvas.Children.Remove(hazard.Body);
             GameCanvas.Children.Remove(hazard.Hitbox);
             activeEnemyHazards.Remove(hazard);
@@ -5497,6 +5563,259 @@ namespace TaskbarRPG
                 RemoveEnemyHazard(hazard);
         }
 
+        private Ellipse CreateHazardTelegraphGlow()
+        {
+            return new Ellipse
+            {
+                Width = 32,
+                Height = 14,
+                Fill = new SolidColorBrush(Color.FromArgb(120, 72, 186, 255)),
+                Stroke = new SolidColorBrush(Color.FromArgb(210, 214, 246, 255)),
+                StrokeThickness = 1,
+                Opacity = 0,
+                Visibility = Visibility.Hidden,
+                IsHitTestVisible = false
+            };
+        }
+
+        private void DrawEnemyHazardTelegraphGlow(SpawnedEnemyHazard hazard)
+        {
+            if (hazard.TelegraphGlow == null)
+                return;
+
+            bool showGlow = hazard.Phase == EnemyHazardPhase.Delay ||
+                (hazard.Phase == EnemyHazardPhase.Rise &&
+                 hazard.PhaseTick < Math.Max(1, hazard.RiseDurationFrames));
+            if (!showGlow)
+            {
+                hazard.TelegraphGlow.Visibility = Visibility.Hidden;
+                hazard.TelegraphGlow.Opacity = 0;
+                return;
+            }
+
+            double phaseProgress = hazard.Phase switch
+            {
+                EnemyHazardPhase.Delay => hazard.InitialDelayFrames <= 0
+                    ? 1.0
+                    : 1.0 - Math.Clamp((double)hazard.DelayFrames / hazard.InitialDelayFrames, 0, 1),
+                EnemyHazardPhase.Rise => 0.7 + (Math.Clamp((double)hazard.PhaseTick / Math.Max(1, hazard.RiseDurationFrames), 0, 1) * 0.3),
+                _ => 0
+            };
+            double pulse = 0.78 + (Math.Sin((animationFrameCounter * 0.34) + (hazard.X * 0.03)) * 0.22);
+            double glowWidth = hazard.TelegraphGlowWidth * (0.62 + (phaseProgress * 0.48));
+            double glowHeight = hazard.TelegraphGlowHeight * (0.68 + (phaseProgress * 0.24));
+            hazard.TelegraphGlow.Width = glowWidth;
+            hazard.TelegraphGlow.Height = glowHeight;
+            hazard.TelegraphGlow.Opacity = Math.Clamp((0.16 + (phaseProgress * 0.42)) * pulse, 0, 0.82);
+            hazard.TelegraphGlow.Visibility = Visibility.Visible;
+            Canvas.SetLeft(hazard.TelegraphGlow, hazard.X + ((hazard.Width - glowWidth) / 2.0));
+            Canvas.SetTop(hazard.TelegraphGlow, hazard.Y + hazard.Height - (glowHeight * 0.62));
+        }
+
+        private static bool IsSnowballProjectile(SpawnedEnemyProjectile projectile)
+            => IsFallenKnightEnemy(projectile.Owner) && !IsFallenKnightHeadEnemy(projectile.Owner);
+
+        private static bool IsFireGlobProjectile(SpawnedEnemyProjectile projectile)
+            => IsFallenKnightHeadEnemy(projectile.Owner);
+
+        private void SpawnVisualEffect(
+            Shape body,
+            double x,
+            double y,
+            double velocityX,
+            double velocityY,
+            double gravityPerFrame,
+            int lifetimeFrames,
+            double startOpacity,
+            double endOpacity,
+            double startScale,
+            double endScale,
+            int zIndex)
+        {
+            body.RenderTransformOrigin = new Point(0.5, 0.5);
+            body.IsHitTestVisible = false;
+            GameCanvas.Children.Add(body);
+            Panel.SetZIndex(body, zIndex);
+            activeVisualEffects.Add(new TransientVisualEffect
+            {
+                Body = body,
+                X = x,
+                Y = y,
+                BaseWidth = body.Width,
+                BaseHeight = body.Height,
+                HorizontalVelocity = velocityX,
+                VerticalVelocity = velocityY,
+                GravityPerFrame = gravityPerFrame,
+                LifetimeFrames = Math.Max(1, lifetimeFrames),
+                StartOpacity = startOpacity,
+                EndOpacity = endOpacity,
+                StartScale = startScale,
+                EndScale = endScale,
+                IsAlive = true
+            });
+        }
+
+        private void SpawnSnowballTrailParticle(SpawnedEnemyProjectile projectile)
+        {
+            double size = GetRandomDouble(4, 8);
+            double centerX = projectile.X + (projectile.Body.Width * GetRandomDouble(0.32, 0.68));
+            double centerY = projectile.Y + (projectile.Body.Height * GetRandomDouble(0.36, 0.72));
+            var mote = new Ellipse
+            {
+                Width = size,
+                Height = size,
+                Fill = new SolidColorBrush(rng.NextDouble() < 0.4
+                    ? Color.FromArgb(180, 162, 214, 255)
+                    : Color.FromArgb(155, 236, 248, 255))
+            };
+            SpawnVisualEffect(
+                mote,
+                centerX - (size / 2.0),
+                centerY - (size / 2.0),
+                (-projectile.HorizontalVelocity * 0.08) + GetRandomDouble(-0.45, 0.45),
+                GetRandomDouble(-0.15, 0.45),
+                0.02,
+                VisualEffectTrailLifetimeFrames,
+                0.62,
+                0.0,
+                1.0,
+                0.42,
+                16);
+        }
+
+        private void SpawnFireGlobTrailParticle(SpawnedEnemyProjectile projectile)
+        {
+            double size = GetRandomDouble(5, 9);
+            double centerX = projectile.X + (projectile.Body.Width * GetRandomDouble(0.28, 0.72));
+            double centerY = projectile.Y + (projectile.Body.Height * GetRandomDouble(0.28, 0.72));
+            var ember = new Ellipse
+            {
+                Width = size,
+                Height = size,
+                Fill = new SolidColorBrush(rng.NextDouble() < 0.5
+                    ? Color.FromArgb(190, 255, 188, 84)
+                    : Color.FromArgb(170, 255, 112, 48))
+            };
+            SpawnVisualEffect(
+                ember,
+                centerX - (size / 2.0),
+                centerY - (size / 2.0),
+                (-projectile.HorizontalVelocity * 0.05) + GetRandomDouble(-0.55, 0.55),
+                GetRandomDouble(-0.7, -0.18),
+                0.035,
+                VisualEffectTrailLifetimeFrames,
+                0.68,
+                0.0,
+                1.1,
+                0.36,
+                17);
+        }
+
+        private void SpawnSnowballImpactBurst(SpawnedEnemyProjectile projectile)
+        {
+            double floorY = groundY + playerHeight;
+            double impactX = projectile.X + (projectile.Body.Width / 2.0);
+            double splashWidth = Math.Max(20, projectile.Body.Width * 0.9);
+            double splashHeight = Math.Max(8, projectile.Body.Height * 0.32);
+            var splash = new Ellipse
+            {
+                Width = splashWidth,
+                Height = splashHeight,
+                Fill = new SolidColorBrush(Color.FromArgb(170, 214, 240, 255)),
+                Stroke = new SolidColorBrush(Color.FromArgb(120, 244, 251, 255)),
+                StrokeThickness = 1
+            };
+            SpawnVisualEffect(
+                splash,
+                impactX - (splashWidth / 2.0),
+                floorY - (splashHeight * 0.72),
+                0,
+                0,
+                0,
+                12,
+                0.72,
+                0.0,
+                0.8,
+                1.4,
+                15);
+
+            int shardCount = 7;
+            for (int index = 0; index < shardCount; index++)
+            {
+                double size = GetRandomDouble(5, 10);
+                var shard = new Ellipse
+                {
+                    Width = size,
+                    Height = size,
+                    Fill = new SolidColorBrush(index % 2 == 0
+                        ? Color.FromArgb(190, 168, 220, 255)
+                        : Color.FromArgb(180, 240, 248, 255))
+                };
+                SpawnVisualEffect(
+                    shard,
+                    impactX - (size / 2.0) + GetRandomDouble(-8, 8),
+                    floorY - size - GetRandomDouble(2, 10),
+                    GetRandomDouble(-2.8, 2.8),
+                    GetRandomDouble(-3.5, -1.4),
+                    0.16,
+                    VisualEffectBurstLifetimeFrames + rng.Next(0, 5),
+                    0.84,
+                    0.0,
+                    1.0,
+                    0.28,
+                    16);
+            }
+        }
+
+        private void UpdateVisualEffects()
+        {
+            foreach (var effect in activeVisualEffects.ToList())
+            {
+                if (!effect.IsAlive)
+                    continue;
+
+                effect.X += effect.HorizontalVelocity;
+                effect.VerticalVelocity += effect.GravityPerFrame;
+                effect.Y += effect.VerticalVelocity;
+                effect.AgeFrames++;
+                if (effect.AgeFrames >= effect.LifetimeFrames)
+                    RemoveVisualEffect(effect);
+            }
+        }
+
+        private void DrawVisualEffects()
+        {
+            foreach (var effect in activeVisualEffects)
+            {
+                if (!effect.IsAlive)
+                    continue;
+
+                double progress = Math.Clamp((double)effect.AgeFrames / Math.Max(1, effect.LifetimeFrames), 0, 1);
+                double opacity = effect.StartOpacity + ((effect.EndOpacity - effect.StartOpacity) * progress);
+                double scale = effect.StartScale + ((effect.EndScale - effect.StartScale) * progress);
+                effect.Body.Opacity = Math.Max(0, opacity);
+                Canvas.SetLeft(effect.Body, effect.X);
+                Canvas.SetTop(effect.Body, effect.Y);
+                effect.Body.RenderTransform = new ScaleTransform(scale, scale);
+            }
+        }
+
+        private void RemoveVisualEffect(TransientVisualEffect effect)
+        {
+            if (!effect.IsAlive)
+                return;
+
+            effect.IsAlive = false;
+            GameCanvas.Children.Remove(effect.Body);
+            activeVisualEffects.Remove(effect);
+        }
+
+        private void ClearVisualEffects()
+        {
+            foreach (var effect in activeVisualEffects.ToList())
+                RemoveVisualEffect(effect);
+        }
+
         private void UpdateEnemyProjectiles()
         {
             foreach (var projectile in activeEnemyProjectiles.ToList())
@@ -5507,13 +5826,23 @@ namespace TaskbarRPG
                 projectile.X += projectile.HorizontalVelocity;
                 projectile.VerticalVelocity += projectile.GravityPerFrame;
                 projectile.Y += projectile.VerticalVelocity;
+                if (IsSnowballProjectile(projectile) && (animationFrameCounter % 3 == 0))
+                    SpawnSnowballTrailParticle(projectile);
+                else if (IsFireGlobProjectile(projectile) && (animationFrameCounter % 2 == 0))
+                    SpawnFireGlobTrailParticle(projectile);
 
                 double floorY = groundY + playerHeight;
                 bool outOfBounds = projectile.X < -projectile.Body.Width ||
                     projectile.X > Width + projectile.Body.Width ||
                     projectile.Y < -projectile.Body.Height ||
                     projectile.Y > floorY + projectile.Body.Height;
-                if (outOfBounds || projectile.Y + projectile.Body.Height >= floorY)
+                double groundDespawnY = projectile.DespawnWhenTopTouchesGround
+                    ? projectile.Y
+                    : projectile.Y + projectile.Body.Height;
+                bool hitGround = groundDespawnY >= floorY;
+                if (!outOfBounds && hitGround && IsSnowballProjectile(projectile))
+                    SpawnSnowballImpactBurst(projectile);
+                if (outOfBounds || hitGround)
                 {
                     RemoveEnemyProjectile(projectile);
                     continue;
@@ -5820,7 +6149,9 @@ namespace TaskbarRPG
                                 enemy,
                                 Math.Max(
                                     FallenKnightSnowballAttackBaseFrames,
-                                    20 + (enemy.SpecialActionStep * 12)));
+                                    FallenKnightSnowballFirstThrowTick +
+                                    (Math.Max(0, enemy.SpecialActionStep - 1) * FallenKnightSnowballThrowIntervalFrames) +
+                                    FallenKnightSnowballRecoveryFrames));
                             enemy.AttackCooldownFrames = FallenKnightAttackCooldownFrames + (enemy.SpecialActionStep * 4);
                             break;
 
@@ -5847,10 +6178,9 @@ namespace TaskbarRPG
                         break;
 
                     case "snowball_heave":
-                        int firstThrowTick = 8;
-                        const int throwInterval = 12;
                         while (enemy.SpecialActionCounter < enemy.SpecialActionStep &&
-                               enemy.AttackAnimationTick >= firstThrowTick + (enemy.SpecialActionCounter * throwInterval))
+                               enemy.AttackAnimationTick >= FallenKnightSnowballFirstThrowTick +
+                               (enemy.SpecialActionCounter * FallenKnightSnowballThrowIntervalFrames))
                         {
                             SpawnEnemySnowballProjectile(enemy, enemy.SpecialActionCounter, playerCenterX);
                             enemy.SpecialActionCounter++;
@@ -6608,6 +6938,20 @@ namespace TaskbarRPG
             double scaleY = FallenKnightReassemblyStartScaleY + ((1.0 - FallenKnightReassemblyStartScaleY) * progress);
             double offsetY = (1.0 - progress) * FallenKnightReassemblyLiftPixels;
             return (scaleX, scaleY, offsetY);
+        }
+
+        private double GetFallenKnightVulnerabilityFlashStrength(SpawnedEnemy enemy)
+        {
+            if (!IsFallenKnightEnemy(enemy) ||
+                enemy.LinkedEnemy == null ||
+                !enemy.LinkedEnemy.IsReturningToOwner)
+                return 0;
+
+            double progress = GetFallenKnightHeadReturnProgress(enemy);
+            double cycleProgress = (animationFrameCounter % FallenKnightReassemblyFlashCycleFrames) /
+                (double)FallenKnightReassemblyFlashCycleFrames;
+            double pulse = 0.5 + (Math.Sin(cycleProgress * Math.PI * 2.0) * 0.5);
+            return Math.Clamp((0.34 + (pulse * 0.66)) * (0.7 + ((1.0 - progress) * 0.3)), 0, 1);
         }
 
         private (double ScaleX, double ScaleY, double HealthBarLift, double Opacity, bool UseBottomAnchor) GetFallenKnightHeadFireTowerVisuals(SpawnedEnemy enemy)
@@ -7840,6 +8184,9 @@ namespace TaskbarRPG
                 var fallenKnightHeadTowerVisuals = enemy.IsDying
                     ? (1.0, 1.0, 0.0, 1.0, false)
                     : GetFallenKnightHeadFireTowerVisuals(enemy);
+                double fallenKnightVulnerabilityFlash = enemy.IsDying
+                    ? 0
+                    : GetFallenKnightVulnerabilityFlashStrength(enemy);
                 bool showEnemyLabel = !enemy.IsDying &&
                     !(IsFallenKnightEnemy(enemy) && enemy.LinkedEnemy != null) &&
                     !(IsFallenKnightHeadEnemy(enemy) && enemy.IsReturningToOwner) &&
@@ -7850,14 +8197,49 @@ namespace TaskbarRPG
                 enemy.Label.Visibility = showEnemyLabel ? Visibility.Visible : Visibility.Hidden;
                 enemy.HealthBg.Visibility = showEnemyHealth ? Visibility.Visible : Visibility.Hidden;
                 enemy.HealthFill.Visibility = showEnemyHealth ? Visibility.Visible : Visibility.Hidden;
-                enemy.Body.Opacity = baseOpacity *
-                    (enemy.IsDying ? enemy.DeathOpacity : fallenKnightHeadTowerVisuals.Item4);
+                enemy.Body.Opacity = Math.Clamp(
+                    baseOpacity *
+                    (enemy.IsDying ? enemy.DeathOpacity : fallenKnightHeadTowerVisuals.Item4) *
+                    (1.0 + (fallenKnightVulnerabilityFlash * 0.14)),
+                    0,
+                    1);
                 Canvas.SetLeft(enemy.Body, drawX);
                 double bodyTop = enemy.Y + enemy.SpriteGroundOffsetY + GetFrostlingSnowballBodyOffsetY(enemy) +
                     (enemy.IsDying ? enemy.DeathOffsetY : fallenKnightReassemblyVisuals.Item3);
                 double spriteCenterX = drawX + (spriteWidth / 2.0);
                 Canvas.SetTop(enemy.Body, bodyTop);
                 DrawFallenKnightHeadTrail(enemy);
+
+                if (fallenKnightVulnerabilityFlash > 0.01)
+                {
+                    enemy.Body.Effect = new DropShadowEffect
+                    {
+                        Color = Color.FromRgb(255, 194, 104),
+                        BlurRadius = 8 + (fallenKnightVulnerabilityFlash * 12),
+                        ShadowDepth = 0,
+                        Opacity = 0.24 + (fallenKnightVulnerabilityFlash * 0.42)
+                    };
+                    enemy.HealthBg.Stroke = new SolidColorBrush(Color.FromArgb(
+                        (byte)Math.Clamp(110 + (fallenKnightVulnerabilityFlash * 110), 0, 255),
+                        255,
+                        204,
+                        118));
+                    enemy.HealthBg.StrokeThickness = 1.0 + (fallenKnightVulnerabilityFlash * 1.35);
+                    enemy.HealthFill.Effect = new DropShadowEffect
+                    {
+                        Color = Color.FromRgb(255, 216, 144),
+                        BlurRadius = 5 + (fallenKnightVulnerabilityFlash * 8),
+                        ShadowDepth = 0,
+                        Opacity = 0.18 + (fallenKnightVulnerabilityFlash * 0.34)
+                    };
+                }
+                else
+                {
+                    enemy.Body.Effect = null;
+                    enemy.HealthBg.Stroke = null;
+                    enemy.HealthBg.StrokeThickness = 0;
+                    enemy.HealthFill.Effect = null;
+                }
 
                 if (enemy.BodySprite != null)
                 {
@@ -7893,7 +8275,9 @@ namespace TaskbarRPG
                 enemy.AttackHitbox.Height = enemyCollisionRect.Height;
                 Canvas.SetLeft(enemy.AttackHitbox, enemyCollisionRect.X);
                 Canvas.SetTop(enemy.AttackHitbox, enemyCollisionRect.Y);
-                enemy.AttackHitbox.Visibility = gameConfig.Debug ? Visibility.Visible : Visibility.Hidden;
+                bool showAttackHitbox = gameConfig.Debug &&
+                    !(IsFallenKnightHeadEnemy(enemy) && enemy.IsReturningToOwner);
+                enemy.AttackHitbox.Visibility = showAttackHitbox ? Visibility.Visible : Visibility.Hidden;
             }
         }
 
@@ -8578,12 +8962,17 @@ namespace TaskbarRPG
                 return new Rect(enemy.X, enemy.Y, 0, 0);
 
             var (drawX, spriteWidth) = GetEnemySpriteDrawMetrics(enemy);
+            double bodyTop = enemy.Y + enemy.SpriteGroundOffsetY + GetFrostlingSnowballBodyOffsetY(enemy);
             if (IsFallenKnightHeadFireTower(enemy))
             {
-                double towerHitboxWidth = Math.Max(34, enemy.Definition.Width * 1.18);
-                double towerHitboxHeight = Math.Max(96, enemy.Definition.Height * 2.65);
-                double towerHitboxX = drawX + ((spriteWidth - towerHitboxWidth) / 2.0);
-                double towerHitboxY = enemy.Y + enemy.Definition.Height - towerHitboxHeight;
+                var towerVisuals = GetFallenKnightHeadFireTowerVisuals(enemy);
+                double towerCenterX = drawX + (spriteWidth / 2.0);
+                double towerVisualWidth = Math.Max(18, spriteWidth * towerVisuals.ScaleX);
+                double towerVisualHeight = Math.Max(enemy.Definition.Height, enemy.Definition.Height * towerVisuals.ScaleY);
+                double towerHitboxWidth = Math.Max(20, towerVisualWidth * 0.84);
+                double towerHitboxHeight = Math.Max(34, towerVisualHeight * 0.9);
+                double towerHitboxX = towerCenterX - (towerHitboxWidth / 2.0);
+                double towerHitboxY = bodyTop + enemy.Definition.Height - towerHitboxHeight;
                 return new Rect(towerHitboxX, towerHitboxY, towerHitboxWidth, towerHitboxHeight);
             }
 
@@ -8610,6 +8999,14 @@ namespace TaskbarRPG
             double hitboxH = enemy.Definition.CollisionHitboxHeight ?? (enemy.Definition.Height * 0.76);
             hitboxW = Math.Min(maxHitboxW, Math.Max(6, hitboxW));
             hitboxH = Math.Min(maxHitboxH, Math.Max(6, hitboxH));
+
+            if (IsFallenKnightEnemy(enemy))
+            {
+                double centeredOffsetY = enemy.Definition.CollisionHitboxOffsetY ?? (enemy.Definition.Height - hitboxH);
+                centeredOffsetY = Math.Max(0, Math.Min(enemy.Definition.Height - hitboxH, centeredOffsetY));
+                double centeredHitboxX = drawX + ((spriteWidth - hitboxW) / 2.0);
+                return new Rect(centeredHitboxX, enemy.Y + centeredOffsetY, hitboxW, hitboxH);
+            }
 
             double availableWidth = Math.Max(0, spriteWidth - hitboxW);
             double defaultOffsetX = availableWidth / 2.0;

@@ -32,7 +32,7 @@ PALETTE = {
 
 ENEMY_SIZE = (72, 96)
 BODY_EXPORT_SIZE = (60, 96)
-ICICLE_SIZE = (32, 56)
+ICICLE_SIZE = (36, 96)
 
 
 def canvas(size: tuple[int, int]) -> Image.Image:
@@ -399,12 +399,12 @@ def draw_icicle_frame(height: int, sink: int = 0) -> Image.Image:
 
 
 def make_icicle_rise_frames() -> list[Image.Image]:
-    heights = [16, 28, 40, 52]
+    heights = [24, 44, 68, 90]
     return [draw_icicle_frame(height=h) for h in heights]
 
 
 def make_icicle_sink_frames() -> list[Image.Image]:
-    specs = [(38, 4), (26, 9), (15, 15), (8, 20)]
+    specs = [(76, 4), (54, 10), (32, 16), (14, 20)]
     return [draw_icicle_frame(height=h, sink=sink) for h, sink in specs]
 
 
