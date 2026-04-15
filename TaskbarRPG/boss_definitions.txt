@@ -1,5 +1,5 @@
 # name;health;attackdamage;movespeed;width(optional);height(optional);behaviors(optional);behaviorintervalframes(optional)
 # behaviors: melee_chaser (default), hop_contact, dash_strike, or comma-separated list
 The Goo;80;20;1.05;64;64;hop_contact,dash_strike;42
-Fallen Knight;190;22;0.00;96;148;spike_field,snowball_heave,fire_head;44
+Fallen Knight;190;22;0.00;96;180;spike_field,snowball_heave,fire_head;44
 DB-5000;130;24;1.10;72;64;melee_chaser;30

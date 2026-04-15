@@ -32,10 +32,14 @@ PALETTE = {
     "spike_light": (255, 158, 74, 255),
 }
 
-BODY_SIZE = (120, 148)
+BODY_SIZE = (120, 180)
+BODY_VERTICAL_OFFSET = 24
 HEAD_SIZE = (48, 48)
+HEAD_TOWER_SIZE = (72, 72)
 SPIKE_SIZE = (32, 64)
 SNOWBALL_SIZE = (28, 28)
+FIRE_GLOB_SIZE = (40, 40)
+HEAD_SPLASH_SIZE = (96, 44)
 
 
 def canvas(size: tuple[int, int]) -> Image.Image:
@@ -107,9 +111,14 @@ def clear_existing_outputs() -> None:
         "fallen_knight_fire_head_cooldown*.png",
         "fallen_knight_head_walk*.png",
         "fallen_knight_head_attack*.png",
+        "fallen_knight_head_fire_tower_telegraph*.png",
+        "fallen_knight_head_fire_tower_attack*.png",
+        "fallen_knight_head_splash_rise*.png",
+        "fallen_knight_head_splash_sink*.png",
         "fallen_knight_spike_rise*.png",
         "fallen_knight_spike_sink*.png",
         "fallen_knight_snowball_spin*.png",
+        "fallen_knight_fire_glob_spin*.png",
     ):
         for path in ASSET_DIR.glob(pattern):
             path.unlink(missing_ok=True)
@@ -175,19 +184,21 @@ def draw_knight(
     draw = ImageDraw.Draw(image)
 
     center_x = 74 + lean
-    floor_y = 144
-    hip_y = 96 + crouch
-    torso_top = 40 + crouch
-    torso_bottom = 104 + crouch
+    floor_y = 144 + BODY_VERTICAL_OFFSET
+    hip_y = 96 + crouch + BODY_VERTICAL_OFFSET
+    torso_top = 40 + crouch + BODY_VERTICAL_OFFSET
+    torso_bottom = 104 + crouch + BODY_VERTICAL_OFFSET
+    front_arm = tuple((x, y + BODY_VERTICAL_OFFSET) for x, y in front_arm)
+    back_arm = tuple((x, y + BODY_VERTICAL_OFFSET) for x, y in back_arm)
 
     back_leg = [
         (center_x - 10, hip_y),
-        (center_x - 16 + back_leg_shift, 119 + crouch),
+        (center_x - 16 + back_leg_shift, 119 + crouch + BODY_VERTICAL_OFFSET),
         (center_x - 17 + back_leg_shift, floor_y),
     ]
     front_leg = [
         (center_x + 9, hip_y),
-        (center_x + 15 + front_leg_shift, 118 + crouch),
+        (center_x + 15 + front_leg_shift, 118 + crouch + BODY_VERTICAL_OFFSET),
         (center_x + 17 + front_leg_shift, floor_y),
     ]
 
@@ -281,13 +292,104 @@ def draw_head_frame(*, flare: int, lean: int, attack: bool) -> Image.Image:
     center_x = 23 + lean
     base_y = 40
     draw_flame(draw, center_x=center_x, base_y=base_y, flicker=flare, surge=3 if attack else 0)
-    rect(draw, (center_x - 6, base_y - 15, center_x + 6, base_y - 8), PALETTE["ember_dark"])
-    rect(draw, (center_x - 5, base_y - 14, center_x + 4, base_y - 9), PALETTE["ember_mid"])
-    rect(draw, (center_x - 5, base_y - 17, center_x - 1, base_y - 15), PALETTE["outline"])
-    rect(draw, (center_x + 1, base_y - 17, center_x + 5, base_y - 15), PALETTE["outline"])
+    ellipse(draw, (center_x - 8, base_y - 16, center_x + 8, base_y - 5), PALETTE["ember_dark"])
+    ellipse(draw, (center_x - 6, base_y - 14, center_x + 6, base_y - 6), PALETTE["ember_mid"])
+    ellipse(draw, (center_x - 2, base_y - 11, center_x + 2, base_y - 6), PALETTE["ember_core"])
     if attack:
         ellipse(draw, (center_x - 18, base_y - 19, center_x - 10, base_y - 9), PALETTE["lava_glow"])
         ellipse(draw, (center_x + 11, base_y - 14, center_x + 19, base_y - 5), PALETTE["lava_glow"])
+    return image
+
+
+def draw_fire_tower_frame(*, height: int, twist: int, pulse: int, crown: int, attack: bool) -> Image.Image:
+    image = canvas(HEAD_TOWER_SIZE)
+    draw = ImageDraw.Draw(image)
+    center_x = HEAD_TOWER_SIZE[0] // 2
+    base_y = HEAD_TOWER_SIZE[1] - 5
+    top_y = max(16, base_y - height)
+    ring_count = max(4, height // 4)
+    y_positions = [
+        base_y - 2 - int(round((height * index) / max(1, ring_count - 1)))
+        for index in range(ring_count)
+    ]
+
+    crown_outer = [
+        (center_x - 13, top_y + 10),
+        (center_x - 18, top_y + 4),
+        (center_x - 14, top_y - 2 - crown),
+        (center_x - 9, top_y + 1),
+        (center_x - 4, top_y - 7 - (crown * 2)),
+        (center_x + 1, top_y + 2),
+        (center_x + 7, top_y - 5 - crown),
+        (center_x + 12, top_y + 1),
+        (center_x + 17, top_y + 6),
+        (center_x + 13, top_y + 10),
+    ]
+    crown_mid = [
+        (center_x - 9, top_y + 10),
+        (center_x - 13, top_y + 5),
+        (center_x - 9, top_y),
+        (center_x - 4, top_y + 2),
+        (center_x, top_y - 5 - crown),
+        (center_x + 4, top_y + 1),
+        (center_x + 9, top_y - 1),
+        (center_x + 12, top_y + 5),
+        (center_x + 9, top_y + 10),
+    ]
+    crown_core = [
+        (center_x - 5, top_y + 10),
+        (center_x - 7, top_y + 6),
+        (center_x - 3, top_y + 2),
+        (center_x, top_y - 2 - crown),
+        (center_x + 3, top_y + 2),
+        (center_x + 7, top_y + 6),
+        (center_x + 5, top_y + 10),
+    ]
+    polygon(draw, crown_outer, PALETTE["ember_dark"])
+    polygon(draw, crown_mid, PALETTE["ember_mid"])
+    polygon(draw, crown_core, PALETTE["ember_light"])
+    ellipse(draw, (center_x - 2, top_y + 1, center_x + 2, top_y + 6), PALETTE["ember_core"])
+    ellipse(draw, (center_x - 15, base_y - 7, center_x + 15, base_y + 2), PALETTE["lava_glow"])
+    ellipse(draw, (center_x - 11, base_y - 6, center_x + 11, base_y), PALETTE["ember_mid"])
+
+    left_ribbon: list[tuple[int, int]] = []
+    right_ribbon: list[tuple[int, int]] = []
+    core_ribbon: list[tuple[int, int]] = []
+    ember_points: list[tuple[int, int]] = []
+
+    for index, ring_y in enumerate(y_positions):
+        progress = 0 if len(y_positions) == 1 else index / (len(y_positions) - 1)
+        swirl = math.sin((progress * math.tau * 1.7) + (twist * 0.75))
+        counter_swirl = math.sin((progress * math.tau * 1.7) + (twist * 0.75) + math.pi * 0.65)
+        outer_radius = max(5, int(round(10 - (progress * 3.3) + pulse)))
+        inner_radius = max(3, outer_radius - 3)
+        core_radius = max(2, inner_radius - 2)
+        offset_x = int(round(swirl * (3.3 - (progress * 1.4))))
+        counter_x = int(round(counter_swirl * (2.4 - (progress * 0.9))))
+        top_squeeze = 1 if attack and index > len(y_positions) // 2 else 0
+
+        ellipse(draw, (center_x - outer_radius + offset_x, ring_y - 4, center_x + outer_radius + offset_x, ring_y + 4), PALETTE["ember_dark"])
+        ellipse(draw, (center_x - inner_radius + offset_x + 1, ring_y - 3, center_x + inner_radius + offset_x, ring_y + 3), PALETTE["ember_mid"])
+        ellipse(draw, (center_x - core_radius + counter_x, ring_y - 2, center_x + core_radius + counter_x, ring_y + 2 - top_squeeze), PALETTE["ember_light"])
+        if index % 2 == 0:
+            ellipse(draw, (center_x - 1 + counter_x, ring_y - 1, center_x + 1 + counter_x, ring_y + 1), PALETTE["ember_core"])
+
+        left_ribbon.append((center_x - outer_radius + 2 + offset_x, ring_y))
+        right_ribbon.append((center_x + outer_radius - 2 + counter_x, ring_y - 1))
+        core_ribbon.append((center_x + counter_x, ring_y - 1))
+        if attack and index in (1, len(y_positions) // 2, len(y_positions) - 2):
+            ember_points.append((center_x + outer_radius + offset_x + 1, ring_y - 1))
+
+    line(draw, left_ribbon, PALETTE["lava_glow"], width=4)
+    line(draw, left_ribbon, PALETTE["ember_mid"], width=2)
+    line(draw, right_ribbon, PALETTE["ember_dark"], width=4)
+    line(draw, right_ribbon, PALETTE["ember_light"], width=2)
+    line(draw, core_ribbon, PALETTE["ember_core"], width=2)
+
+    for ember_x, ember_y in ember_points:
+        ellipse(draw, (ember_x - 3, ember_y - 3, ember_x + 3, ember_y + 3), PALETTE["lava_glow"])
+        ellipse(draw, (ember_x - 1, ember_y - 1, ember_x + 1, ember_y + 1), PALETTE["ember_core"])
+
     return image
 
 
@@ -322,6 +424,97 @@ def draw_snowball_frame(index: int) -> Image.Image:
     spin_shift = [-2, 0, 2, 0][index % 4]
     line(draw, [(center_x - 8, center_y - 4), (center_x - 1 + spin_shift, center_y + 1), (center_x + 7, center_y + 7)], PALETTE["snow_dark"], width=2)
     line(draw, [(center_x - 1, center_y - 9), (center_x + 5, center_y - 3 + spin_shift), (center_x + 8, center_y + 4)], PALETTE["snow_dark"], width=2)
+    return image
+
+
+def draw_fire_glob_frame(index: int) -> Image.Image:
+    image = canvas(FIRE_GLOB_SIZE)
+    draw = ImageDraw.Draw(image)
+    center_x = FIRE_GLOB_SIZE[0] // 2
+    center_y = 23
+    wobble = [-2, 0, 2, 1, -1, 0][index % 6]
+    pulse = [0, 1, 2, 1, 0, 1][index % 6]
+    surge = [1, 2, 3, 2, 1, 2][index % 6]
+
+    ellipse(draw, (center_x - 16, center_y - 13, center_x + 16, center_y + 12), PALETTE["lava_glow"])
+    polygon(
+        draw,
+        [
+            (center_x - 10 + wobble, center_y + 9),
+            (center_x - 16 + wobble, center_y - 1),
+            (center_x - 8 + wobble, center_y - 11 - pulse),
+            (center_x - 2 + wobble, center_y - 5),
+            (center_x + 3 + wobble, center_y - 16 - surge),
+            (center_x + 8 + wobble, center_y - 7),
+            (center_x + 14 + wobble, center_y + 1),
+            (center_x + 10 + wobble, center_y + 9),
+        ],
+        PALETTE["ember_dark"],
+    )
+    polygon(
+        draw,
+        [
+            (center_x - 7 + wobble, center_y + 8),
+            (center_x - 11 + wobble, center_y),
+            (center_x - 5 + wobble, center_y - 8 - pulse),
+            (center_x - 1 + wobble, center_y - 4),
+            (center_x + 2 + wobble, center_y - 12 - surge),
+            (center_x + 6 + wobble, center_y - 5),
+            (center_x + 10 + wobble, center_y + 1),
+            (center_x + 7 + wobble, center_y + 8),
+        ],
+        PALETTE["ember_mid"],
+    )
+    polygon(
+        draw,
+        [
+            (center_x - 4 + wobble, center_y + 7),
+            (center_x - 6 + wobble, center_y + 1),
+            (center_x - 2 + wobble, center_y - 5 - pulse),
+            (center_x + 1 + wobble, center_y - 1),
+            (center_x + 3 + wobble, center_y - 8 - surge),
+            (center_x + 5 + wobble, center_y - 2),
+            (center_x + 4 + wobble, center_y + 7),
+        ],
+        PALETTE["ember_light"],
+    )
+    ellipse(draw, (center_x - 3 + wobble, center_y - 6, center_x + 3 + wobble, center_y + 2), PALETTE["ember_core"])
+    ellipse(draw, (center_x - 13 - wobble, center_y + 2, center_x - 7 - wobble, center_y + 8), PALETTE["lava_glow"])
+    ellipse(draw, (center_x + 8 + wobble, center_y - 10, center_x + 14 + wobble, center_y - 4), PALETTE["lava_glow"])
+    return image
+
+
+def draw_head_splash_frame(*, spread: int, height: int, flare: int, sink: int = 0) -> Image.Image:
+    image = canvas(HEAD_SPLASH_SIZE)
+    draw = ImageDraw.Draw(image)
+    center_x = HEAD_SPLASH_SIZE[0] // 2
+    base_y = HEAD_SPLASH_SIZE[1] - 4 + sink
+    ellipse(draw, (center_x - spread // 2, base_y - 8, center_x + spread // 2, base_y), PALETTE["lava_glow"])
+    ellipse(draw, (center_x - spread // 3, base_y - 6, center_x + spread // 3, base_y - 1), PALETTE["ember_mid"])
+
+    for offset, scale in ((-28, 0.72), (-10, 1.0), (11, 0.96), (29, 0.68)):
+        plume_height = max(10, int(round(height * scale)))
+        draw_flame(
+            draw,
+            center_x=center_x + offset,
+            base_y=base_y - 1,
+            flicker=max(0, flare + (2 if offset in (-10, 11) else 0)),
+            surge=max(0, plume_height - 16),
+        )
+
+    polygon(
+        draw,
+        [
+            (center_x - spread // 2, base_y - 1),
+            (center_x - spread // 3, base_y - 7),
+            (center_x, base_y - 10),
+            (center_x + spread // 3, base_y - 7),
+            (center_x + spread // 2, base_y - 1),
+            (center_x + spread // 3, base_y + 1),
+            (center_x - spread // 3, base_y + 1),
+        ],
+        PALETTE["ember_dark"],
+    )
     return image
 
 
@@ -517,6 +710,34 @@ def make_head_attack_frames() -> list[Image.Image]:
     ]
 
 
+def make_head_fire_tower_telegraph_frames() -> list[Image.Image]:
+    return [
+        draw_fire_tower_frame(height=height, twist=twist, pulse=pulse, crown=crown, attack=False)
+        for height, twist, pulse, crown in (
+            (18, -2, 0, 0),
+            (26, -1, 0, 0),
+            (34, 0, 1, 1),
+            (42, 1, 1, 1),
+            (50, 2, 1, 2),
+            (58, 3, 2, 2),
+        )
+    ]
+
+
+def make_head_fire_tower_attack_frames() -> list[Image.Image]:
+    return [
+        draw_fire_tower_frame(height=56, twist=twist, pulse=pulse, crown=crown, attack=True)
+        for twist, pulse, crown in (
+            (-3, 1, 2),
+            (-1, 2, 3),
+            (1, 1, 2),
+            (3, 2, 3),
+            (1, 1, 2),
+            (-1, 2, 3),
+        )
+    ]
+
+
 def make_spike_rise_frames() -> list[Image.Image]:
     return [
         draw_spike_frame(0, warning=True),
@@ -540,6 +761,29 @@ def make_snowball_frames() -> list[Image.Image]:
     return [draw_snowball_frame(index) for index in range(4)]
 
 
+def make_fire_glob_frames() -> list[Image.Image]:
+    return [draw_fire_glob_frame(index) for index in range(6)]
+
+
+def make_head_splash_rise_frames() -> list[Image.Image]:
+    return [
+        draw_head_splash_frame(spread=28, height=10, flare=0, sink=0),
+        draw_head_splash_frame(spread=42, height=16, flare=1, sink=0),
+        draw_head_splash_frame(spread=58, height=22, flare=2, sink=0),
+        draw_head_splash_frame(spread=72, height=28, flare=3, sink=0),
+        draw_head_splash_frame(spread=84, height=32, flare=4, sink=0),
+    ]
+
+
+def make_head_splash_sink_frames() -> list[Image.Image]:
+    return [
+        draw_head_splash_frame(spread=76, height=24, flare=2, sink=1),
+        draw_head_splash_frame(spread=60, height=18, flare=1, sink=2),
+        draw_head_splash_frame(spread=44, height=12, flare=0, sink=4),
+        draw_head_splash_frame(spread=28, height=8, flare=0, sink=6),
+    ]
+
+
 def write_frames(prefix: str, frames: Iterable[Image.Image]) -> None:
     for index, frame in enumerate(frames, start=1):
         save(frame, f"{prefix}{index}.png")
@@ -559,9 +803,14 @@ def main() -> None:
     write_frames("fallen_knight_fire_head_cooldown", make_fire_head_cooldown_frames())
     write_frames("fallen_knight_head_walk", make_head_walk_frames())
     write_frames("fallen_knight_head_attack", make_head_attack_frames())
+    write_frames("fallen_knight_head_fire_tower_telegraph", make_head_fire_tower_telegraph_frames())
+    write_frames("fallen_knight_head_fire_tower_attack", make_head_fire_tower_attack_frames())
+    write_frames("fallen_knight_head_splash_rise", make_head_splash_rise_frames())
+    write_frames("fallen_knight_head_splash_sink", make_head_splash_sink_frames())
     write_frames("fallen_knight_spike_rise", make_spike_rise_frames())
     write_frames("fallen_knight_spike_sink", make_spike_sink_frames())
     write_frames("fallen_knight_snowball_spin", make_snowball_frames())
+    write_frames("fallen_knight_fire_glob_spin", make_fire_glob_frames())
 
 
 if __name__ == "__main__":

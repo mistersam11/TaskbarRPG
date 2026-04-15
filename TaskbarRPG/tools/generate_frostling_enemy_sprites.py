@@ -24,9 +24,10 @@ PALETTE = {
     "snowball_mid": (218, 236, 250, 255),
     "snowball_light": (246, 252, 255, 255),
     "snowball_glow": (188, 232, 255, 170),
-    "ice_dark": (84, 154, 210, 255),
-    "ice_mid": (140, 211, 255, 255),
-    "ice_light": (226, 248, 255, 255),
+    "icicle_glow": (86, 186, 255, 200),
+    "ice_dark": (46, 120, 220, 255),
+    "ice_mid": (108, 196, 255, 255),
+    "ice_light": (214, 242, 255, 255),
 }
 
 ENEMY_SIZE = (72, 96)
@@ -389,7 +390,7 @@ def draw_icicle_frame(height: int, sink: int = 0) -> Image.Image:
     tip_y = max(2, base_y - height)
     half_width = max(5, 4 + height // 7)
 
-    ellipse(draw, (center_x - 11, canvas_height - 7, center_x + 11, canvas_height - 1), PALETTE["snowball_glow"])
+    ellipse(draw, (center_x - 11, canvas_height - 7, center_x + 11, canvas_height - 1), PALETTE["icicle_glow"])
     polygon(draw, [(center_x, tip_y), (center_x - half_width, base_y), (center_x + half_width, base_y)], PALETTE["ice_dark"])
     polygon(draw, [(center_x, tip_y + 1), (center_x - half_width + 2, base_y - 1), (center_x + half_width - 2, base_y - 1)], PALETTE["ice_mid"])
     polygon(draw, [(center_x, tip_y + 3), (center_x - 3, base_y - 6), (center_x + 3, base_y - 6)], PALETTE["ice_light"])

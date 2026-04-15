@@ -90,6 +90,9 @@ namespace TaskbarRPG
         ShopSell,
         EquipSword,
         EquipBow,
+        DebugCheatMenu,
+        DebugCheatSetLevel,
+        DebugCheatSetItems,
     }
 
     public enum ItemKind
@@ -367,7 +370,7 @@ namespace TaskbarRPG
         private static readonly List<BossTemplate> defaultBossTemplates = new()
         {
             new BossTemplate { Name = "The Goo", Health = 80, AttackDamage = 20, MoveSpeed = 1.05, Width = 64, Height = 64, BehaviorIds = new() { "hop_contact", "dash_strike" }, BehaviorIntervalFrames = 42 },
-            new BossTemplate { Name = "Fallen Knight", Health = 190, AttackDamage = 22, MoveSpeed = 0.0, Width = 96, Height = 148, BehaviorIds = new() { "spike_field", "snowball_heave", "fire_head" }, BehaviorIntervalFrames = 44 },
+            new BossTemplate { Name = "Fallen Knight", Health = 190, AttackDamage = 22, MoveSpeed = 0.0, Width = 96, Height = 180, BehaviorIds = new() { "spike_field", "snowball_heave", "fire_head" }, BehaviorIntervalFrames = 44 },
             new BossTemplate { Name = "DB-5000", Health = 130, AttackDamage = 24, MoveSpeed = 1.1, Width = 72, Height = 64, BehaviorIds = new() { "melee_chaser" }, BehaviorIntervalFrames = 30 },
         };
 
@@ -622,7 +625,7 @@ namespace TaskbarRPG
                 boss.AttackHitboxWidth = Math.Max(44, template.Width * 0.58);
                 boss.AttackHitboxHeight = Math.Max(84, template.Height * 0.8);
                 boss.CollisionHitboxWidth = Math.Max(56, template.Width * 0.5);
-                boss.CollisionHitboxHeight = Math.Max(116, template.Height * 0.88);
+                boss.CollisionHitboxHeight = Math.Max(116, Math.Min(130, template.Height * 0.88));
                 boss.CollisionHitboxOffsetX = (template.Width - boss.CollisionHitboxWidth.Value) / 2.0;
                 boss.CollisionHitboxOffsetY = Math.Max(0, template.Height - boss.CollisionHitboxHeight.Value);
             }
@@ -947,8 +950,14 @@ namespace TaskbarRPG
         public bool SuppressContactDamage = false;
         public int SpecialActionStep = 0;
         public int SpecialActionCounter = 0;
+        public int FallenKnightSpikeAttacksCompleted = 0;
+        public int FallenKnightSnowballAttacksCompleted = 0;
         public double HomeX = double.NaN;
         public double HomeY = double.NaN;
+        public int ReturnAnimationTick = 0;
+        public int ReturnAnimationDuration = 0;
+        public List<Point> TrailHistory { get; set; } = new();
+        public List<FrameworkElement> TrailBodies { get; set; } = new();
     }
 
     public class ArrowProjectile
@@ -1034,18 +1043,22 @@ namespace TaskbarRPG
         private const int WM_SYSKEYDOWN = 0x0104;
         private const int WM_SYSKEYUP = 0x0105;
 
+        private const int VK_BACK = 0x08;
+        private const int VK_RETURN = 0x0D;
         private const int VK_LEFT = 0x25;
         private const int VK_UP = 0x26;
         private const int VK_RIGHT = 0x27;
         private const int VK_DOWN = 0x28;
         private const int VK_SPACE = 0x20;
         private const int VK_ESCAPE = 0x1B;
+        private const int VK_0 = 0x30;
         private const int VK_A = 0x41;
         private const int VK_C = 0x43;
         private const int VK_D = 0x44;
         private const int VK_E = 0x45;
         private const int VK_F = 0x46;
         private const int VK_M = 0x4D;
+        private const int VK_S = 0x53;
         private const int VK_W = 0x57;
         private const int VK_X = 0x58;
         private const int VK_Z = 0x5A;
@@ -1061,6 +1074,7 @@ namespace TaskbarRPG
         private const int VK_8 = 0x38;
         private const int VK_9 = 0x39;
         private static readonly int[] BossSkipSequence = { VK_UP, VK_DOWN, VK_UP, VK_DOWN, VK_LEFT, VK_RIGHT, VK_LEFT, VK_RIGHT };
+        private static readonly int[] DebugCheatSequence = { VK_W, VK_S, VK_W, VK_S, VK_A, VK_D, VK_A, VK_D };
 
         // P/Invoke
         [DllImport("user32.dll")]
@@ -1134,6 +1148,9 @@ namespace TaskbarRPG
         private bool statsHeld = false;
         private bool mapHeld = false;
         private bool potionHeld = false;
+        private bool zeroHeld = false;
+        private bool enterHeld = false;
+        private bool backspaceHeld = false;
 
         private readonly bool[] numberHeld = new bool[9];
         private readonly bool[] numberHeldLastFrame = new bool[9];
@@ -1147,9 +1164,14 @@ namespace TaskbarRPG
         private bool statsHeldLastFrame = false;
         private bool mapHeldLastFrame = false;
         private bool potionHeldLastFrame = false;
+        private bool zeroHeldLastFrame = false;
+        private bool enterHeldLastFrame = false;
+        private bool backspaceHeldLastFrame = false;
         private int bossSkipSequenceIndex = 0;
+        private int debugCheatSequenceIndex = 0;
         private int fastTravelPageIndex = 0;
         private bool fastTravelCheatMode = false;
+        private string debugCheatLevelInput = "";
 
         // UI elements
         private DispatcherTimer timer = null!;
@@ -1327,6 +1349,9 @@ namespace TaskbarRPG
 
         private static bool UsesDedicatedEnemyAttackFrames(string enemyName, string? behaviorId = null)
         {
+            if (enemyName.Equals("Fallen Knight Head", StringComparison.OrdinalIgnoreCase))
+                return behaviorId != null && behaviorId.Equals("fire_tower", StringComparison.OrdinalIgnoreCase);
+
             if (enemyName.Equals("slime", StringComparison.OrdinalIgnoreCase))
                 return false;
 
@@ -1664,7 +1689,7 @@ namespace TaskbarRPG
         private GameConfig gameConfig = new();
 
         // Physics / layout
-        private double playAreaHeight = 180;
+        private double playAreaHeight = 240;
         private double playerX = 100;
         private double playerY = 0;
         private double playerWidth = 32;
@@ -1722,7 +1747,8 @@ namespace TaskbarRPG
         private const int FrostlingIcicleRiseFrames = 7;
         private const int FrostlingIcicleHoldFrames = 8;
         private const int FrostlingIcicleSinkFrames = 8;
-        private const int FrostlingIcicleDelayStepFrames = 6;
+        private const int FrostlingIcicleDelayStepFrames = 4;
+        private const int FrostlingIcicleBurstCount = 14;
         private const int FrostlingIcicleDamage = 11;
         private const int FallenKnightSpikeTelegraphFrames = 26;
         private const int FallenKnightSpikeRiseFrames = 9;
@@ -1731,16 +1757,39 @@ namespace TaskbarRPG
         private const int FallenKnightSpikeDamage = 18;
         private const int FallenKnightSnowballTelegraphDurationFrames = 24;
         private const int FallenKnightSnowballAttackBaseFrames = 56;
+        private const int FallenKnightSnowballVolleyCount = 6;
         private const int FallenKnightFireHeadTelegraphDurationFrames = 24;
         private const int FallenKnightFireHeadAttackDurationFrames = 34;
         private const int FallenKnightAttackCooldownFrames = 54;
+        private const int FallenKnightHeadFireTowerChargeFrames = 120;
+        private const int FallenKnightHeadFireTowerBaseAttackFrames = 48;
+        private const int FallenKnightHeadFireTowerMinJumpCount = 5;
+        private const int FallenKnightHeadFireTowerMaxJumpCount = 7;
         private const double FallenKnightFixedX = 1180;
-        private const double FallenKnightHeadReturnSpeed = 1.05;
-        private const double FallenKnightSnowballBaseSpeed = 2.7;
-        private const double FallenKnightSnowballSpeedStep = 0.42;
-        private const double FallenKnightSnowballBaseLift = -8.5;
-        private const double FallenKnightSnowballLiftStep = -0.45;
-        private const double FallenKnightSnowballGravity = 0.24;
+        private const int FallenKnightHeadReturnDurationFrames = 18;
+        private const double FallenKnightSnowballGravity = 0.18;
+        private const double FallenKnightSnowballBaseTravelFrames = 28;
+        private const double FallenKnightSnowballTravelFrameStep = 4;
+        private const double FallenKnightSnowballLandingSpreadBase = 52;
+        private const double FallenKnightSnowballLandingSpreadStep = 18;
+        private const int FallenKnightHeadJumpMinAirFrames = 20;
+        private const int FallenKnightHeadJumpMaxAirFrames = 36;
+        private const double FallenKnightHeadJumpMinDistance = 84;
+        private const double FallenKnightHeadJumpLandingSpread = 164;
+        private const double FallenKnightHeadTargetedJumpMaxSpeed = 10.4;
+        private const double FallenKnightHeadTrailSampleMinDistance = 10;
+        private const int FallenKnightHeadTrailLength = 4;
+        private const double FallenKnightHeadSplashMinImpactSpeed = 4.5;
+        private const int FallenKnightHeadSplashHoldFrames = 5;
+        private const int FallenKnightHeadSplashRiseFrames = 5;
+        private const int FallenKnightHeadSplashSinkFrames = 6;
+        private const double FallenKnightHeadSplashHitboxWidth = 84;
+        private const double FallenKnightHeadSplashHitboxHeight = 28;
+        private const double FallenKnightHeadFireTowerScaleX = 0.58;
+        private const double FallenKnightHeadFireTowerScaleY = 4.25;
+        private const double FallenKnightReassemblyStartScaleX = 0.86;
+        private const double FallenKnightReassemblyStartScaleY = 0.48;
+        private const double FallenKnightReassemblyLiftPixels = 36;
         private const double FallenKnightCollapsedHitboxHeight = 26;
         private const double FallenKnightCollapsedHitboxWidth = 92;
         private const double EnemyProjectileDefaultHitboxScale = 0.64;
@@ -2066,7 +2115,7 @@ namespace TaskbarRPG
                 string seed =
                     "# name;health;attackdamage;movespeed;width(optional);height(optional);behaviors(optional);behaviorintervalframes(optional)\n" +
                     "The Goo;80;20;1.05;64;64;hop_contact,dash_strike;42\n" +
-                    "Fallen Knight;190;22;0.00;96;148;spike_field,snowball_heave,fire_head;44\n" +
+                    "Fallen Knight;190;22;0.00;96;180;spike_field,snowball_heave,fire_head;44\n" +
                     "DB-5000;130;24;1.10;72;64;melee_chaser;30";
                 System.IO.File.WriteAllText(path, seed);
             }
@@ -2433,7 +2482,10 @@ namespace TaskbarRPG
                         {
                             SetHeldKeyState(vk, down);
                             if (isKeyDown)
+                            {
                                 HandleBossSkipSequenceInput(vk);
+                                HandleDebugCheatSequenceInput(vk);
+                            }
                         }));
 
                         if (ShouldBlockKey(vk))
@@ -2461,10 +2513,13 @@ namespace TaskbarRPG
                 case VK_X: fireHeld = isDown; break;
                 case VK_C: closeHeld = isDown; break;
                 case VK_ESCAPE: escapeHeld = isDown; break;
+                case VK_RETURN: enterHeld = isDown; break;
+                case VK_BACK: backspaceHeld = isDown; break;
                 case VK_F: fastTravelHeld = isDown; break;
                 case VK_E: statsHeld = isDown; break;
                 case VK_M: mapHeld = isDown; break;
                 case VK_OEM_2: potionHeld = isDown; break;
+                case VK_0: zeroHeld = isDown; break;
                 case VK_1: numberHeld[0] = isDown; break;
                 case VK_2: numberHeld[1] = isDown; break;
                 case VK_3: numberHeld[2] = isDown; break;
@@ -2481,11 +2536,14 @@ namespace TaskbarRPG
         {
             switch (vk)
             {
+                case VK_BACK:
+                case VK_RETURN:
                 case VK_LEFT:
                 case VK_UP:
                 case VK_RIGHT:
                 case VK_DOWN:
                 case VK_SPACE:
+                case VK_0:
                 case VK_A:
                 case VK_C:
                 case VK_ESCAPE:
@@ -2494,6 +2552,7 @@ namespace TaskbarRPG
                 case VK_F:
                 case VK_M:
                 case VK_OEM_2:
+                case VK_S:
                 case VK_W:
                 case VK_X:
                 case VK_Z:
@@ -2516,12 +2575,15 @@ namespace TaskbarRPG
         {
             CancelBowCharge();
             bossSkipSequenceIndex = 0;
+            debugCheatSequenceIndex = 0;
             leftHeld = rightHeld = jumpHeld = meleeHeld = fireHeld =
-            downHeld = closeHeld = escapeHeld = fastTravelHeld = statsHeld = mapHeld = potionHeld = false;
+            downHeld = closeHeld = escapeHeld = fastTravelHeld = statsHeld = mapHeld = potionHeld =
+            zeroHeld = enterHeld = backspaceHeld = false;
 
             jumpHeldLastFrame = meleeHeldLastFrame = fireHeldLastFrame =
             closeHeldLastFrame = escapeHeldLastFrame = fastTravelHeldLastFrame = statsHeldLastFrame =
-            mapHeldLastFrame = potionHeldLastFrame = false;
+            mapHeldLastFrame = potionHeldLastFrame = zeroHeldLastFrame =
+            enterHeldLastFrame = backspaceHeldLastFrame = false;
 
             for (int i = 0; i < numberHeld.Length; i++)
             {
@@ -2547,6 +2609,26 @@ namespace TaskbarRPG
             else
             {
                 bossSkipSequenceIndex = vk == BossSkipSequence[0] ? 1 : 0;
+            }
+        }
+
+        private void HandleDebugCheatSequenceInput(int vk)
+        {
+            if (vk != VK_W && vk != VK_S && vk != VK_A && vk != VK_D)
+                return;
+
+            if (vk == DebugCheatSequence[debugCheatSequenceIndex])
+            {
+                debugCheatSequenceIndex++;
+                if (debugCheatSequenceIndex >= DebugCheatSequence.Length)
+                {
+                    debugCheatSequenceIndex = 0;
+                    OpenDebugCheatMenu();
+                }
+            }
+            else
+            {
+                debugCheatSequenceIndex = vk == DebugCheatSequence[0] ? 1 : 0;
             }
         }
 
@@ -2618,6 +2700,20 @@ namespace TaskbarRPG
             PrepareFastTravelSelectorPage();
             RenderCurrentPanel();
             ShowStatus("Cheat stage selector opened.", 100);
+        }
+
+        private void OpenDebugCheatMenu()
+        {
+            CloseAllPanels();
+            ResetHeldInputs();
+            velocityX = 0;
+            velocityY = 0;
+            panelMode = PanelMode.DebugCheatMenu;
+            panelBorder.Visibility = Visibility.Visible;
+            activeShop = null;
+            debugCheatLevelInput = "";
+            RenderCurrentPanel();
+            ShowStatus("Testing cheat menu opened.", 100);
         }
 
         // -----------------------------------------------------------------------
@@ -3190,6 +3286,15 @@ namespace TaskbarRPG
                 return;
             }
 
+            if (panelMode == PanelMode.DebugCheatMenu ||
+                panelMode == PanelMode.DebugCheatSetLevel ||
+                panelMode == PanelMode.DebugCheatSetItems)
+            {
+                HandleDebugCheatSelection();
+                CacheLastFrameInput();
+                return;
+            }
+
             if (panelMode == PanelMode.Stats)
             {
                 HandleStatsSelection();
@@ -3260,6 +3365,9 @@ namespace TaskbarRPG
             statsHeldLastFrame = statsHeld;
             mapHeldLastFrame = mapHeld;
             potionHeldLastFrame = potionHeld;
+            zeroHeldLastFrame = zeroHeld;
+            enterHeldLastFrame = enterHeld;
+            backspaceHeldLastFrame = backspaceHeld;
 
             for (int i = 0; i < numberHeld.Length; i++)
                 numberHeldLastFrame[i] = numberHeld[i];
@@ -3295,6 +3403,7 @@ namespace TaskbarRPG
             panelText.Text = "";
             activeShop = null;
             fastTravelCheatMode = false;
+            debugCheatLevelInput = "";
         }
 
         private void RenderCurrentPanel()
@@ -3311,6 +3420,9 @@ namespace TaskbarRPG
                 case PanelMode.ShopSell: RenderShopSellPanel(); break;
                 case PanelMode.EquipSword: RenderEquipSwordPanel(); break;
                 case PanelMode.EquipBow: RenderEquipBowPanel(); break;
+                case PanelMode.DebugCheatMenu: RenderDebugCheatMenuPanel(); break;
+                case PanelMode.DebugCheatSetLevel: RenderDebugCheatSetLevelPanel(); break;
+                case PanelMode.DebugCheatSetItems: RenderDebugCheatSetItemsPanel(); break;
             }
         }
 
@@ -3539,6 +3651,58 @@ namespace TaskbarRPG
             FitPanelText();
         }
 
+        private void RenderDebugCheatMenuPanel()
+        {
+            string swordText = playerData.EquippedSword?.GetDisplayText() ?? "None";
+            string bowText = playerData.EquippedBow?.GetDisplayText() ?? "None";
+
+            panelText.Text =
+                "TESTING CHEATS\n" +
+                "\n" +
+                $"Player Level: {playerData.Level}\n" +
+                $"Sword: {swordText}\n" +
+                $"Bow:   {bowText}\n" +
+                "\n" +
+                "1. Set Player Level\n" +
+                "2. Set Sword + Bow Level\n" +
+                "\n" +
+                "C = close";
+            FitPanelText();
+        }
+
+        private void RenderDebugCheatSetLevelPanel()
+        {
+            string displayValue = string.IsNullOrWhiteSpace(debugCheatLevelInput)
+                ? "_"
+                : debugCheatLevelInput;
+
+            panelText.Text =
+                "SET PLAYER LEVEL\n" +
+                "\n" +
+                $"Input: {displayValue}\n" +
+                "\n" +
+                "Type 0-9 to enter a level.\n" +
+                "ENTER = apply\n" +
+                "BACKSPACE = erase\n" +
+                "C = close";
+            FitPanelText();
+        }
+
+        private void RenderDebugCheatSetItemsPanel()
+        {
+            panelText.Text =
+                "SET SWORD + BOW LEVEL\n" +
+                "\n" +
+                "1. Level 1\n" +
+                "2. Level 2\n" +
+                "3. Level 3\n" +
+                "4. Level 4\n" +
+                "5. Level 5\n" +
+                "\n" +
+                "Choose # to apply  C = close";
+            FitPanelText();
+        }
+
         // -----------------------------------------------------------------------
         // Panel input handlers
         // -----------------------------------------------------------------------
@@ -3548,6 +3712,15 @@ namespace TaskbarRPG
                 if (numberHeld[i] && !numberHeldLastFrame[i])
                     return i;
             return -1;
+        }
+
+        private int GetPressedDigit()
+        {
+            if (zeroHeld && !zeroHeldLastFrame)
+                return 0;
+
+            int index = GetPressedNumberIndex();
+            return index >= 0 ? index + 1 : -1;
         }
 
         private void HandleSystemMenuSelection()
@@ -4646,9 +4819,9 @@ namespace TaskbarRPG
             double hazardY = floorLineY - spriteHeight;
             double enemyCenterX = enemy.X + (enemy.Definition.Width / 2.0);
             int direction = enemy.Direction == 0 ? 1 : enemy.Direction;
-            double firstOffset = Math.Max(34, enemy.Definition.Width * 0.55);
-            double spacing = Math.Max(24, spriteWidth * 0.9);
-            double[] centerOffsets = Enumerable.Range(0, 5)
+            double firstOffset = Math.Max(12, enemy.Definition.Width * 0.18);
+            double spacing = Math.Max(12, spriteWidth * 0.48);
+            double[] centerOffsets = Enumerable.Range(0, FrostlingIcicleBurstCount)
                 .Select(index => firstOffset + (index * spacing))
                 .ToArray();
             double hitboxWidth = Math.Max(16, Math.Min(22, spriteWidth * 0.72));
@@ -4833,16 +5006,40 @@ namespace TaskbarRPG
         {
             var snowballFrames = LoadEnemyFrames("fallen_knight_snowball", "spin");
             BitmapImage? firstFrame = snowballFrames.FirstOrDefault();
-            double sizeScale = 0.9 + (throwIndex * 0.25);
+            var (drawX, spriteWidth) = GetEnemySpriteDrawMetrics(enemy);
+            double sizeScale = 0.88 + (throwIndex * 0.22);
             double bodyWidth = Math.Max(18, (firstFrame?.PixelWidth ?? 20) * sizeScale);
             double bodyHeight = Math.Max(18, (firstFrame?.PixelHeight ?? 20) * sizeScale);
             double startX = enemy.Direction < 0
-                ? enemy.X + (enemy.Definition.Width * 0.18)
-                : enemy.X + (enemy.Definition.Width * 0.68);
-            double startY = enemy.Y + (enemy.Definition.Height * 0.2);
-            int direction = targetX >= startX ? 1 : -1;
-            double horizontalVelocity = direction * (FallenKnightSnowballBaseSpeed + (throwIndex * FallenKnightSnowballSpeedStep));
-            double verticalVelocity = FallenKnightSnowballBaseLift + (throwIndex * FallenKnightSnowballLiftStep);
+                ? drawX + (spriteWidth * 0.22)
+                : drawX + (spriteWidth * 0.64);
+            double startY = enemy.Y + enemy.SpriteGroundOffsetY + (enemy.Definition.Height * 0.22);
+            double floorLineY = groundY + playerHeight;
+            double landingSpread = FallenKnightSnowballLandingSpreadBase + (throwIndex * FallenKnightSnowballLandingSpreadStep);
+            double horizontalMiss = (rng.NextDouble() < 0.5 ? -1.0 : 1.0) *
+                GetRandomDouble(landingSpread * 0.35, landingSpread);
+            double targetCenterX = Math.Clamp(
+                targetX + horizontalMiss,
+                bodyWidth / 2.0,
+                Math.Max(bodyWidth / 2.0, Width - (bodyWidth / 2.0)));
+            double targetCenterY = floorLineY - Math.Max(6, bodyHeight * 0.35);
+            double deltaX = targetCenterX - startX;
+            double deltaY = targetCenterY - startY;
+            double travelFrames = Math.Clamp(
+                FallenKnightSnowballBaseTravelFrames +
+                (Math.Abs(deltaX) / 20.0) +
+                (throwIndex * FallenKnightSnowballTravelFrameStep) +
+                GetRandomDouble(-4, 6),
+                26,
+                76);
+            double horizontalVelocity = deltaX / Math.Max(1, travelFrames);
+            double gravityPerFrame = FallenKnightSnowballGravity +
+                (throwIndex * 0.012) +
+                GetRandomDouble(-0.02, 0.035);
+            double verticalVelocity =
+                (deltaY - (gravityPerFrame * travelFrames * (travelFrames + 1) / 2.0)) /
+                Math.Max(1, travelFrames);
+            int direction = horizontalVelocity >= 0 ? 1 : -1;
             int damage = Math.Max(8, enemy.Definition.ContactDamage - 2 + (throwIndex * 4));
 
             FrameworkElement body;
@@ -4885,9 +5082,82 @@ namespace TaskbarRPG
                 Direction = direction,
                 HorizontalVelocity = horizontalVelocity,
                 VerticalVelocity = verticalVelocity,
-                GravityPerFrame = FallenKnightSnowballGravity,
+                GravityPerFrame = gravityPerFrame,
                 HitboxWidth = Math.Max(10, bodyWidth * EnemyProjectileDefaultHitboxScale),
                 HitboxHeight = Math.Max(10, bodyHeight * EnemyProjectileDefaultHitboxScale),
+                Damage = damage,
+                AnimationFrameCounter = rng.Next(0, 9999),
+                IsAlive = true
+            });
+        }
+
+        private void SpawnFallenKnightHeadFireGlobProjectile(SpawnedEnemy enemy, int globIndex, double targetX)
+        {
+            double size = 28 + (globIndex * 6);
+            var fireGlobFrames = LoadEnemyFrames("fallen_knight_fire_glob", "spin");
+            BitmapImage? firstFrame = fireGlobFrames.FirstOrDefault();
+            double spawnX = enemy.X + ((enemy.Definition.Width - size) / 2.0);
+            double spawnY = enemy.Y - Math.Max(88, enemy.Definition.Height * 2.7);
+            double targetCenterX = Math.Clamp(
+                targetX + GetRandomDouble(-34, 34),
+                size / 2.0,
+                Math.Max(size / 2.0, Width - (size / 2.0)));
+            double targetCenterY = playerY + (playerHeight * 0.42);
+            int travelFrames = 18 + (globIndex * 3);
+            double gravityPerFrame = 0.26 + (globIndex * 0.015);
+            double startCenterX = spawnX + (size / 2.0);
+            double startCenterY = spawnY + (size / 2.0);
+            double deltaX = targetCenterX - startCenterX;
+            double deltaY = targetCenterY - startCenterY;
+            double horizontalVelocity = deltaX / Math.Max(1, travelFrames);
+            double verticalVelocity = (deltaY - (gravityPerFrame * travelFrames * (travelFrames + 1) / 2.0)) / Math.Max(1, travelFrames);
+            int direction = horizontalVelocity >= 0 ? 1 : -1;
+            int damage = Math.Max(enemy.Definition.ContactDamage + 4 + (globIndex * 2), 26);
+
+            FrameworkElement body;
+            Image? bodySprite = null;
+            if (firstFrame != null)
+            {
+                bodySprite = new Image
+                {
+                    Width = size,
+                    Height = size,
+                    Stretch = Stretch.Fill,
+                    Source = firstFrame
+                };
+                RenderOptions.SetBitmapScalingMode(bodySprite, BitmapScalingMode.NearestNeighbor);
+                body = bodySprite;
+            }
+            else
+            {
+                body = new Ellipse
+                {
+                    Width = size,
+                    Height = size,
+                    Fill = new SolidColorBrush(Color.FromRgb(255, 132, 46)),
+                    Stroke = new SolidColorBrush(Color.FromRgb(255, 222, 128)),
+                    StrokeThickness = 2,
+                    Opacity = 0.95
+                };
+            }
+
+            GameCanvas.Children.Add(body);
+            Panel.SetZIndex(body, 19);
+
+            activeEnemyProjectiles.Add(new SpawnedEnemyProjectile
+            {
+                Owner = enemy,
+                Body = body,
+                BodySprite = bodySprite,
+                Frames = fireGlobFrames,
+                X = spawnX,
+                Y = spawnY,
+                Direction = direction,
+                HorizontalVelocity = horizontalVelocity,
+                VerticalVelocity = verticalVelocity,
+                GravityPerFrame = gravityPerFrame,
+                HitboxWidth = Math.Max(18, size * 0.74),
+                HitboxHeight = Math.Max(18, size * 0.74),
                 Damage = damage,
                 AnimationFrameCounter = rng.Next(0, 9999),
                 IsAlive = true
@@ -4939,6 +5209,151 @@ namespace TaskbarRPG
             }
         }
 
+        private void HandleDebugCheatSelection()
+        {
+            if (panelMode == PanelMode.DebugCheatMenu)
+            {
+                int index = GetPressedNumberIndex();
+                if (index < 0)
+                    return;
+
+                if (index == 0)
+                {
+                    debugCheatLevelInput = "";
+                    panelMode = PanelMode.DebugCheatSetLevel;
+                    RenderCurrentPanel();
+                }
+                else if (index == 1)
+                {
+                    panelMode = PanelMode.DebugCheatSetItems;
+                    RenderCurrentPanel();
+                }
+                return;
+            }
+
+            if (panelMode == PanelMode.DebugCheatSetLevel)
+            {
+                int digit = GetPressedDigit();
+                if (digit >= 0 && debugCheatLevelInput.Length < 4)
+                {
+                    if (digit != 0 || debugCheatLevelInput.Length > 0)
+                    {
+                        debugCheatLevelInput += digit.ToString();
+                        RenderCurrentPanel();
+                    }
+                }
+
+                if (backspaceHeld && !backspaceHeldLastFrame)
+                {
+                    if (debugCheatLevelInput.Length > 0)
+                    {
+                        debugCheatLevelInput = debugCheatLevelInput[..^1];
+                        RenderCurrentPanel();
+                    }
+                    else
+                    {
+                        panelMode = PanelMode.DebugCheatMenu;
+                        RenderCurrentPanel();
+                    }
+                }
+
+                if (enterHeld && !enterHeldLastFrame)
+                {
+                    if (string.IsNullOrWhiteSpace(debugCheatLevelInput))
+                    {
+                        ShowStatus("Type a player level first.", 70);
+                    }
+                    else if (!int.TryParse(debugCheatLevelInput, out int targetLevel) || targetLevel < 1)
+                    {
+                        ShowStatus("Player level must be at least 1.", 70);
+                    }
+                    else
+                    {
+                        ApplyDebugPlayerLevelCheat(targetLevel);
+                    }
+                }
+
+                return;
+            }
+
+            if (panelMode == PanelMode.DebugCheatSetItems)
+            {
+                int index = GetPressedNumberIndex();
+                if (index >= 0 && index < 5)
+                    ApplyDebugWeaponLevelCheat(index + 1);
+            }
+        }
+
+        private void ApplyDebugPlayerLevelCheat(int targetLevel)
+        {
+            playerData.Level = Math.Max(1, targetLevel);
+            playerData.Experience = 0;
+            levelUpPulseFramesRemaining = LevelUpPulseDurationFrames;
+            SaveGameState();
+
+            debugCheatLevelInput = "";
+            panelMode = PanelMode.DebugCheatMenu;
+            RenderCurrentPanel();
+            ShowStatus($"Player level set to {playerData.Level}.", 90);
+        }
+
+        private void ApplyDebugWeaponLevelCheat(int targetLevel)
+        {
+            int clampedLevel = ItemFactory.ClampWeaponLevel(targetLevel);
+            ReplaceEquippedWeapon(WeaponCategory.Sword, CreateDebugWeaponForLevel(WeaponCategory.Sword, clampedLevel));
+            ReplaceEquippedWeapon(WeaponCategory.Bow, CreateDebugWeaponForLevel(WeaponCategory.Bow, clampedLevel));
+            SaveGameState();
+
+            panelMode = PanelMode.DebugCheatMenu;
+            RenderCurrentPanel();
+            ShowStatus($"Sword and bow set to level {clampedLevel}.", 90);
+        }
+
+        private WeaponItem CreateDebugWeaponForLevel(WeaponCategory category, int targetLevel)
+        {
+            int clampedLevel = ItemFactory.ClampWeaponLevel(targetLevel);
+
+            if (clampedLevel == 1)
+            {
+                return category == WeaponCategory.Sword
+                    ? ItemFactory.CreateOldSword()
+                    : ItemFactory.CreateStarterBow();
+            }
+
+            ItemTemplate? template = itemTemplates
+                .Where(i => i.Category == category && i.Level == clampedLevel)
+                .OrderBy(i => i.CooldownFrames)
+                .FirstOrDefault();
+            if (template != null)
+                return CreateWeaponFromTemplate(template);
+
+            int fallbackCooldown = category == WeaponCategory.Sword ? 12 : 14;
+            string fallbackName = category == WeaponCategory.Sword
+                ? $"Debug Sword Lv {clampedLevel}"
+                : $"Debug Bow Lv {clampedLevel}";
+            return ItemFactory.CreateWeapon(fallbackName, category, clampedLevel, fallbackCooldown);
+        }
+
+        private void ReplaceEquippedWeapon(WeaponCategory category, WeaponItem replacement)
+        {
+            WeaponItem? current = category == WeaponCategory.Sword
+                ? playerData.EquippedSword
+                : playerData.EquippedBow;
+            var inventoryEntry = current == null
+                ? null
+                : playerData.Inventory.FirstOrDefault(i => ReferenceEquals(i.Item, current));
+
+            if (inventoryEntry != null)
+                inventoryEntry.Item = replacement;
+            else
+                AddItemToInventory(replacement, 1);
+
+            if (category == WeaponCategory.Sword)
+                playerData.EquippedSword = replacement;
+            else
+                playerData.EquippedBow = replacement;
+        }
+
         private void HandleEnemyHazardContactWithPlayer()
         {
             if (playerDamageCooldownFrames > 0)
@@ -4962,9 +5377,11 @@ namespace TaskbarRPG
                 stageTookDamage = true;
                 playerDamageCooldownFrames = PlayerDamageCooldownMax;
                 hazard.HasAppliedDamage = true;
-                string hazardMessage = IsFallenKnightEnemy(hazard.Owner)
-                    ? "Knight spikes hit you!"
-                    : "Icicle blast hits you!";
+                string hazardMessage = IsFallenKnightHeadEnemy(hazard.Owner)
+                    ? "Head slam scorches you!"
+                    : IsFallenKnightEnemy(hazard.Owner)
+                        ? "Knight spikes hit you!"
+                        : "Icicle blast hits you!";
                 ShowStatus(hazardMessage, 35);
                 break;
             }
@@ -5123,7 +5540,11 @@ namespace TaskbarRPG
                 playerDamageCooldownFrames = PlayerDamageCooldownMax;
                 projectile.HasAppliedDamage = true;
                 RemoveEnemyProjectile(projectile);
-                ShowStatus("Snowball hits you!", 35);
+                ShowStatus(
+                    IsFallenKnightHeadEnemy(projectile.Owner)
+                        ? "Fire glob burns you!"
+                        : "Snowball hits you!",
+                    35);
                 break;
             }
         }
@@ -5178,6 +5599,15 @@ namespace TaskbarRPG
                 RemoveEnemyProjectile(projectile);
         }
 
+        private void RemoveEnemyTrailVisuals(SpawnedEnemy enemy)
+        {
+            foreach (var trailBody in enemy.TrailBodies)
+                GameCanvas.Children.Remove(trailBody);
+
+            enemy.TrailBodies.Clear();
+            enemy.TrailHistory.Clear();
+        }
+
         private void RemoveEnemyWithoutRewards(SpawnedEnemy enemy)
         {
             if (!enemy.IsAlive)
@@ -5187,6 +5617,7 @@ namespace TaskbarRPG
             currentAttackVictims.Remove(enemy);
             RemoveEnemyHazardsForOwner(enemy);
             RemoveEnemyProjectilesForOwner(enemy);
+            RemoveEnemyTrailVisuals(enemy);
             GameCanvas.Children.Remove(enemy.Body);
             GameCanvas.Children.Remove(enemy.Label);
             GameCanvas.Children.Remove(enemy.HealthBg);
@@ -5221,7 +5652,43 @@ namespace TaskbarRPG
             enemy.AttackCooldownFrames = FallenKnightAttackCooldownFrames;
             enemy.SpecialActionStep = 0;
             enemy.SpecialActionCounter = 0;
-            SetEnemyBehavior(enemy, SelectBehavior(enemy.Definition.BehaviorIds, enemy.CurrentBehaviorId));
+            enemy.FallenKnightSpikeAttacksCompleted = 0;
+            enemy.FallenKnightSnowballAttacksCompleted = 0;
+            SetEnemyBehavior(enemy, ChooseFallenKnightBehavior(enemy));
+        }
+
+        private void ResetFallenKnightHeadFireTowerCycle(SpawnedEnemy head)
+        {
+            if (!IsFallenKnightHeadEnemy(head))
+                return;
+
+            head.SpecialActionStep = rng.Next(
+                FallenKnightHeadFireTowerMinJumpCount,
+                FallenKnightHeadFireTowerMaxJumpCount + 1);
+            head.SpecialActionCounter = 0;
+        }
+
+        private void InitializeFallenKnightHeadTrailVisuals(SpawnedEnemy head)
+        {
+            RemoveEnemyTrailVisuals(head);
+
+            for (int index = 0; index < FallenKnightHeadTrailLength; index++)
+            {
+                var trail = new Ellipse
+                {
+                    Width = 18 - (index * 2),
+                    Height = 14 - (index * 2),
+                    Fill = new SolidColorBrush(index % 2 == 0
+                        ? Color.FromArgb(120, 255, 156, 68)
+                        : Color.FromArgb(100, 255, 214, 118)),
+                    Opacity = 0,
+                    Visibility = Visibility.Hidden,
+                    IsHitTestVisible = false
+                };
+                GameCanvas.Children.Add(trail);
+                Panel.SetZIndex(trail, 11);
+                head.TrailBodies.Add(trail);
+            }
         }
 
         private void SpawnFallenKnightHead(SpawnedEnemy body)
@@ -5232,15 +5699,15 @@ namespace TaskbarRPG
             var headDefinition = new EnemyDefinition
             {
                 Name = "Fallen Knight Head",
-                BehaviorIds = new List<string> { "melee_chaser" },
-                BehaviorIntervalFrames = 18,
+                BehaviorIds = new List<string> { "hop_contact", "fire_tower" },
+                BehaviorIntervalFrames = 22,
                 PowerLevel = body.Definition.PowerLevel + 1,
                 X = body.X + (body.Definition.Width * 0.18),
                 PatrolRange = 520,
                 AggroRange = 2000,
-                Speed = 2.15,
+                Speed = 1.85,
                 MaxHealth = Math.Max(34, 24 + (currentStageNumber * 4)),
-                ContactDamage = Math.Max(body.Definition.ContactDamage + 4, 20),
+                ContactDamage = Math.Max(body.Definition.ContactDamage + 6, 24),
                 XpReward = 0,
                 GoldMin = 0,
                 GoldMax = 0,
@@ -5261,6 +5728,12 @@ namespace TaskbarRPG
             head.IsGrounded = false;
             head.SuppressRewards = true;
             head.LinkedEnemy = body;
+            head.HazardRiseFrames = LoadEnemyFrames("fallen_knight_head_splash", "rise");
+            head.HazardSinkFrames = LoadEnemyFrames("fallen_knight_head_splash", "sink");
+            InitializeFallenKnightHeadTrailVisuals(head);
+            SetEnemyBehavior(head, "hop_contact");
+            ResetFallenKnightHeadFireTowerCycle(head);
+            head.BehaviorTimerFrames = 8;
             body.LinkedEnemy = head;
             body.IsInvulnerable = true;
             body.SuppressContactDamage = true;
@@ -5275,12 +5748,22 @@ namespace TaskbarRPG
             head.IsReturningToOwner = true;
             head.IsInvulnerable = true;
             head.SuppressContactDamage = true;
+            head.HomeX = head.X;
+            head.HomeY = head.Y;
+            head.ReturnAnimationTick = 0;
+            head.ReturnAnimationDuration = FallenKnightHeadReturnDurationFrames;
             head.HorizontalVelocity = 0;
             head.VerticalVelocity = 0;
             head.CurrentHealth = 0;
+            StopEnemyAttack(head);
+            StopEnemyTelegraph(head);
+            RemoveEnemyTrailVisuals(head);
+            head.HasLockedAttackDirection = false;
+            SetEnemyBehavior(head, "hop_contact");
             head.Label.Visibility = Visibility.Hidden;
             head.HealthBg.Visibility = Visibility.Hidden;
             head.HealthFill.Visibility = Visibility.Hidden;
+            head.AttackHitbox.Visibility = Visibility.Hidden;
 
             if (head.LinkedEnemy != null)
             {
@@ -5331,14 +5814,14 @@ namespace TaskbarRPG
                             break;
 
                         case "snowball_heave":
-                            enemy.SpecialActionStep = rng.Next(3, 7);
+                            enemy.SpecialActionStep = FallenKnightSnowballVolleyCount;
                             enemy.SpecialActionCounter = 0;
                             StartEnemyAttack(
                                 enemy,
                                 Math.Max(
                                     FallenKnightSnowballAttackBaseFrames,
                                     20 + (enemy.SpecialActionStep * 12)));
-                            enemy.AttackCooldownFrames = FallenKnightAttackCooldownFrames + (enemy.SpecialActionStep * 3);
+                            enemy.AttackCooldownFrames = FallenKnightAttackCooldownFrames + (enemy.SpecialActionStep * 4);
                             break;
 
                         case "fire_head":
@@ -5389,7 +5872,7 @@ namespace TaskbarRPG
             if (!hasAggro || enemy.AttackCooldownFrames > 0)
                 return;
 
-            SetEnemyBehavior(enemy, SelectBehavior(enemy.Definition.BehaviorIds, enemy.CurrentBehaviorId));
+            SetEnemyBehavior(enemy, ChooseFallenKnightBehavior(enemy));
             int telegraphDuration = enemy.CurrentBehaviorId switch
             {
                 "spike_field" => Math.Max(FallenKnightSpikeTelegraphFrames, Math.Max(1, GetTelegraphFramesForCurrentBehavior(enemy).Count) * 4),
@@ -5416,11 +5899,20 @@ namespace TaskbarRPG
 
                 double targetX = enemy.LinkedEnemy.X + (enemy.LinkedEnemy.Definition.Width * 0.44);
                 double targetY = enemy.LinkedEnemy.Y + (enemy.LinkedEnemy.Definition.Height * 0.08);
-                enemy.X += GetStepTowards(enemy.X, targetX, FallenKnightHeadReturnSpeed);
-                enemy.Y += GetStepTowards(enemy.Y, targetY, FallenKnightHeadReturnSpeed * 0.8);
+                enemy.ReturnAnimationTick = Math.Min(enemy.ReturnAnimationDuration, enemy.ReturnAnimationTick + 1);
+                double progress = enemy.ReturnAnimationDuration <= 0
+                    ? 1.0
+                    : Math.Clamp((double)enemy.ReturnAnimationTick / enemy.ReturnAnimationDuration, 0, 1);
+                double easedProgress = 1.0 - Math.Pow(1.0 - progress, 3);
+                double floatBob = Math.Sin(animationFrameCounter * 0.18) *
+                    Math.Max(0.4, 2.2 * (1.0 - GetFallenKnightHeadReturnProgress(enemy.LinkedEnemy)));
+                double startX = double.IsNaN(enemy.HomeX) ? enemy.X : enemy.HomeX;
+                double startY = double.IsNaN(enemy.HomeY) ? enemy.Y : enemy.HomeY;
+                enemy.X = startX + ((targetX - startX) * easedProgress);
+                enemy.Y = startY + (((targetY + floatBob) - startY) * easedProgress);
                 enemy.Direction = targetX >= enemy.X ? 1 : -1;
 
-                if (Math.Abs(enemy.X - targetX) <= 2 && Math.Abs(enemy.Y - targetY) <= 2)
+                if (progress >= 1.0)
                 {
                     var body = enemy.LinkedEnemy;
                     RemoveEnemyWithoutRewards(enemy);
@@ -5432,19 +5924,256 @@ namespace TaskbarRPG
 
             enemy.IsAggroLocked = true;
             enemy.IsInvulnerable = false;
-            enemy.SuppressContactDamage = false;
-            enemy.Direction = playerCenterX >= enemyCenterX ? 1 : -1;
-            enemy.HorizontalVelocity = enemy.Direction * enemy.Speed;
-
-            double distanceToPlayer = Math.Abs(playerCenterX - enemyCenterX);
-            if (!enemy.IsAttacking && enemy.AttackCooldownFrames <= 0 && distanceToPlayer <= 84)
+            if (enemy.IsTelegraphing)
             {
-                StartEnemyAttack(enemy, Math.Max(12, Math.Max(1, enemy.AttackFrames.Count) * 4));
-                enemy.AttackCooldownFrames = 20;
+                enemy.SuppressContactDamage = true;
+                enemy.Direction = playerCenterX >= enemyCenterX ? 1 : -1;
+                enemy.HorizontalVelocity = 0;
+                enemy.VerticalVelocity = 0;
+                enemy.IsGrounded = true;
+                enemy.TelegraphFramesRemaining--;
+                if (enemy.TelegraphFramesRemaining <= 0)
+                {
+                    StopEnemyTelegraph(enemy);
+                    int fireGlobCount = rng.Next(3, 5);
+                    enemy.SpecialActionStep = fireGlobCount;
+                    enemy.SpecialActionCounter = 0;
+                    StartEnemyAttack(
+                        enemy,
+                        Math.Max(
+                            FallenKnightHeadFireTowerBaseAttackFrames,
+                            14 + (fireGlobCount * 12)));
+                    enemy.AttackCooldownFrames = 28;
+                }
+                return;
             }
 
             if (enemy.IsAttacking)
-                enemy.HorizontalVelocity = enemy.Direction * enemy.Speed * 1.25;
+            {
+                enemy.SuppressContactDamage = true;
+                enemy.Direction = playerCenterX >= enemyCenterX ? 1 : -1;
+                enemy.HorizontalVelocity = 0;
+                enemy.VerticalVelocity = 0;
+                enemy.IsGrounded = true;
+                int firstGlobTick = 8;
+                const int globInterval = 12;
+                while (enemy.SpecialActionCounter < enemy.SpecialActionStep &&
+                       enemy.AttackAnimationTick >= firstGlobTick + (enemy.SpecialActionCounter * globInterval))
+                {
+                    SpawnFallenKnightHeadFireGlobProjectile(enemy, enemy.SpecialActionCounter, playerCenterX);
+                    enemy.SpecialActionCounter++;
+                }
+                return;
+            }
+
+            enemy.SuppressContactDamage = false;
+            UpdateHopContactEnemy(enemy, true, playerCenterX);
+        }
+
+        private void SpawnFallenKnightHeadLandingSplash(SpawnedEnemy enemy)
+        {
+            BitmapImage? firstFrame = enemy.HazardRiseFrames.FirstOrDefault() ?? enemy.HazardSinkFrames.FirstOrDefault();
+            double spriteWidth = firstFrame?.PixelWidth > 0 ? firstFrame.PixelWidth : 92;
+            double spriteHeight = firstFrame?.PixelHeight > 0 ? firstFrame.PixelHeight : 36;
+            double splashX = Math.Clamp(
+                enemy.X + ((enemy.Definition.Width - spriteWidth) / 2.0),
+                0,
+                Math.Max(0, Width - spriteWidth));
+            double splashY = (groundY + playerHeight) - spriteHeight;
+
+            FrameworkElement body;
+            Image? bodySprite = null;
+            if (firstFrame != null)
+            {
+                bodySprite = new Image
+                {
+                    Width = spriteWidth,
+                    Height = spriteHeight,
+                    Stretch = Stretch.Fill,
+                    Source = firstFrame
+                };
+                RenderOptions.SetBitmapScalingMode(bodySprite, BitmapScalingMode.NearestNeighbor);
+                body = bodySprite;
+            }
+            else
+            {
+                body = new Ellipse
+                {
+                    Width = spriteWidth,
+                    Height = spriteHeight,
+                    Fill = new SolidColorBrush(Color.FromArgb(220, 255, 120, 44)),
+                    Opacity = 0.9
+                };
+            }
+
+            var hitbox = new Rectangle
+            {
+                Width = FallenKnightHeadSplashHitboxWidth,
+                Height = FallenKnightHeadSplashHitboxHeight,
+                Fill = gameConfig.Debug ? new SolidColorBrush(Color.FromArgb(80, 255, 140, 70)) : Brushes.Transparent,
+                Stroke = gameConfig.Debug ? Brushes.OrangeRed : null,
+                StrokeThickness = gameConfig.Debug ? 1 : 0,
+                Visibility = Visibility.Hidden
+            };
+
+            GameCanvas.Children.Add(body);
+            GameCanvas.Children.Add(hitbox);
+            Panel.SetZIndex(body, 18);
+            Panel.SetZIndex(hitbox, 19);
+
+            activeEnemyHazards.Add(new SpawnedEnemyHazard
+            {
+                Owner = enemy,
+                Body = body,
+                BodySprite = bodySprite,
+                Hitbox = hitbox,
+                RiseFrames = enemy.HazardRiseFrames,
+                SinkFrames = enemy.HazardSinkFrames,
+                X = splashX,
+                Y = splashY,
+                Width = spriteWidth,
+                Height = spriteHeight,
+                HitboxWidth = FallenKnightHeadSplashHitboxWidth,
+                HitboxHeight = FallenKnightHeadSplashHitboxHeight,
+                HitboxOffsetX = Math.Max(0, (spriteWidth - FallenKnightHeadSplashHitboxWidth) / 2.0),
+                HitboxOffsetY = Math.Max(0, spriteHeight - FallenKnightHeadSplashHitboxHeight),
+                Damage = Math.Max(20, enemy.Definition.ContactDamage - 2),
+                DelayFrames = 0,
+                HoldFrames = FallenKnightHeadSplashHoldFrames,
+                RiseDurationFrames = Math.Max(FallenKnightHeadSplashRiseFrames, enemy.HazardRiseFrames.Count),
+                SinkDurationFrames = Math.Max(FallenKnightHeadSplashSinkFrames, enemy.HazardSinkFrames.Count),
+                Direction = enemy.Direction,
+                Phase = EnemyHazardPhase.Rise,
+                PhaseTick = 0,
+                IsAlive = true
+            });
+        }
+
+        private void HandleFallenKnightHeadLanding(SpawnedEnemy enemy, bool wasGrounded, double impactVelocity)
+        {
+            if (!IsFallenKnightHeadEnemy(enemy) ||
+                enemy.IsReturningToOwner ||
+                wasGrounded ||
+                !enemy.IsGrounded ||
+                !enemy.CurrentBehaviorId.Equals("hop_contact", StringComparison.OrdinalIgnoreCase) ||
+                enemy.IsTelegraphing ||
+                enemy.IsAttacking ||
+                impactVelocity < FallenKnightHeadSplashMinImpactSpeed)
+                return;
+
+            SpawnFallenKnightHeadLandingSplash(enemy);
+        }
+
+        private void UpdateFallenKnightHeadTrailHistory(SpawnedEnemy enemy)
+        {
+            if (!IsFallenKnightHeadEnemy(enemy) || enemy.TrailBodies.Count == 0)
+                return;
+
+            bool shouldRecord = enemy.IsAlive &&
+                !enemy.IsDying &&
+                !enemy.IsReturningToOwner &&
+                !enemy.IsGrounded &&
+                !enemy.IsTelegraphing &&
+                !enemy.IsAttacking;
+            if (!shouldRecord)
+            {
+                enemy.TrailHistory.Clear();
+                return;
+            }
+
+            Point trailPoint = new(
+                enemy.X + (enemy.Definition.Width / 2.0),
+                enemy.Y + (enemy.Definition.Height * 0.58));
+            if (enemy.TrailHistory.Count == 0)
+            {
+                enemy.TrailHistory.Add(trailPoint);
+                return;
+            }
+
+            Point latestPoint = enemy.TrailHistory[0];
+            double distanceFromLatest = Math.Sqrt(
+                Math.Pow(trailPoint.X - latestPoint.X, 2) +
+                Math.Pow(trailPoint.Y - latestPoint.Y, 2));
+            if (distanceFromLatest >= FallenKnightHeadTrailSampleMinDistance)
+                enemy.TrailHistory.Insert(0, trailPoint);
+            else
+                enemy.TrailHistory[0] = trailPoint;
+
+            while (enemy.TrailHistory.Count > enemy.TrailBodies.Count)
+                enemy.TrailHistory.RemoveAt(enemy.TrailHistory.Count - 1);
+        }
+
+        private void DrawFallenKnightHeadTrail(SpawnedEnemy enemy)
+        {
+            if (!IsFallenKnightHeadEnemy(enemy) || enemy.TrailBodies.Count == 0)
+                return;
+
+            bool shouldShow = !enemy.IsDying &&
+                !enemy.IsReturningToOwner &&
+                !IsFallenKnightHeadFireTower(enemy) &&
+                enemy.TrailHistory.Count > 1;
+
+            for (int index = 0; index < enemy.TrailBodies.Count; index++)
+            {
+                FrameworkElement trailBody = enemy.TrailBodies[index];
+                if (!shouldShow || index >= enemy.TrailHistory.Count)
+                {
+                    trailBody.Visibility = Visibility.Hidden;
+                    trailBody.Opacity = 0;
+                    continue;
+                }
+
+                Point point = enemy.TrailHistory[index];
+                double width = Math.Max(7, 19 - (index * 3));
+                double height = Math.Max(5, 15 - (index * 2));
+                trailBody.Width = width;
+                trailBody.Height = height;
+                trailBody.Opacity = Math.Max(0.08, 0.32 - (index * 0.06));
+                trailBody.Visibility = Visibility.Visible;
+                Canvas.SetLeft(trailBody, point.X - (width / 2.0));
+                Canvas.SetTop(trailBody, point.Y - (height / 2.0));
+            }
+        }
+
+        private string ChooseFallenKnightBehavior(SpawnedEnemy enemy)
+        {
+            if (!IsFallenKnightEnemy(enemy) || enemy.Definition.BehaviorIds.Count == 0)
+                return enemy.CurrentBehaviorId;
+
+            bool readyForHeadDetach =
+                enemy.FallenKnightSpikeAttacksCompleted >= 2 &&
+                enemy.FallenKnightSnowballAttacksCompleted >= 2 &&
+                enemy.Definition.BehaviorIds.Any(id => id.Equals("fire_head", StringComparison.OrdinalIgnoreCase));
+            if (readyForHeadDetach)
+                return "fire_head";
+
+            var standardBehaviors = enemy.Definition.BehaviorIds
+                .Where(id => !id.Equals("fire_head", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (standardBehaviors.Count == 0)
+                return SelectBehavior(enemy.Definition.BehaviorIds, enemy.CurrentBehaviorId);
+
+            return SelectBehavior(standardBehaviors, enemy.CurrentBehaviorId);
+        }
+
+        private void RecordFallenKnightCompletedAttack(SpawnedEnemy enemy, string behaviorId)
+        {
+            if (!IsFallenKnightEnemy(enemy))
+                return;
+
+            if (behaviorId.Equals("spike_field", StringComparison.OrdinalIgnoreCase))
+            {
+                enemy.FallenKnightSpikeAttacksCompleted = Math.Min(2, enemy.FallenKnightSpikeAttacksCompleted + 1);
+            }
+            else if (behaviorId.Equals("snowball_heave", StringComparison.OrdinalIgnoreCase))
+            {
+                enemy.FallenKnightSnowballAttacksCompleted = Math.Min(2, enemy.FallenKnightSnowballAttacksCompleted + 1);
+            }
+            else if (behaviorId.Equals("fire_head", StringComparison.OrdinalIgnoreCase))
+            {
+                enemy.FallenKnightSpikeAttacksCompleted = 0;
+                enemy.FallenKnightSnowballAttacksCompleted = 0;
+            }
         }
 
         private bool ApplyFallenKnightPhysics(SpawnedEnemy enemy)
@@ -5528,6 +6257,8 @@ namespace TaskbarRPG
                     }
                 }
 
+                bool wasGrounded = enemy.IsGrounded;
+                double impactVelocity = enemy.VerticalVelocity;
                 enemy.X += enemy.HorizontalVelocity;
                 enemy.X = Math.Max(0, Math.Min(Width - enemy.Definition.Width, enemy.X));
 
@@ -5569,6 +6300,9 @@ namespace TaskbarRPG
                     }
                 }
 
+                HandleFallenKnightHeadLanding(enemy, wasGrounded, impactVelocity);
+                UpdateFallenKnightHeadTrailHistory(enemy);
+
                 if (enemy.AttackCooldownFrames > 0)
                     enemy.AttackCooldownFrames--;
 
@@ -5578,6 +6312,7 @@ namespace TaskbarRPG
                     enemy.AttackAnimationTick++;
                     if (enemy.AttackFramesRemaining <= 0)
                     {
+                        string completedBehaviorId = enemy.CurrentBehaviorId;
                         bool endedGooDashAttack =
                             enemy.Definition.Name.Equals("The Goo", StringComparison.OrdinalIgnoreCase) &&
                             enemy.CurrentBehaviorId.Equals("dash_strike", StringComparison.OrdinalIgnoreCase);
@@ -5590,7 +6325,11 @@ namespace TaskbarRPG
                         bool endedFallenKnightFireHead =
                             IsFallenKnightEnemy(enemy) &&
                             enemy.CurrentBehaviorId.Equals("fire_head", StringComparison.OrdinalIgnoreCase);
+                        bool endedFallenKnightHeadFireTower =
+                            IsFallenKnightHeadEnemy(enemy) &&
+                            !enemy.IsReturningToOwner;
                         StopEnemyAttack(enemy);
+                        RecordFallenKnightCompletedAttack(enemy, completedBehaviorId);
                         if (!endedFrostlingIceSlam)
                             enemy.HasLockedAttackDirection = false;
                         if (endedGooDashAttack)
@@ -5612,6 +6351,16 @@ namespace TaskbarRPG
                         if (endedFallenKnightFireHead && enemy.LinkedEnemy != null)
                         {
                             StartFallenKnightBodyCollapse(enemy);
+                        }
+                        if (endedFallenKnightHeadFireTower)
+                        {
+                            enemy.SuppressContactDamage = false;
+                            enemy.HorizontalVelocity = 0;
+                            enemy.VerticalVelocity = 0;
+                            enemy.IsGrounded = true;
+                            enemy.BehaviorTimerFrames = 10;
+                            SetEnemyBehavior(enemy, "hop_contact");
+                            ResetFallenKnightHeadFireTowerCycle(enemy);
                         }
                     }
                 }
@@ -5668,6 +6417,12 @@ namespace TaskbarRPG
                             }
                             else if (IsFallenKnightEnemy(enemy))
                             {
+                                BitmapImage? recoveryFrame = GetFallenKnightRecoveryFrame(enemy, cooldownFrames);
+                                if (recoveryFrame != null)
+                                {
+                                    enemy.BodySprite.Source = recoveryFrame;
+                                    continue;
+                                }
                                 frameIndex = GetFallenKnightCooldownFrameIndex(enemy, cooldownFrames);
                             }
                             else
@@ -5802,6 +6557,81 @@ namespace TaskbarRPG
 
             int rubbleIndex = (animationFrameCounter / 10) % rubbleCount;
             return Math.Clamp(rubbleStart + rubbleIndex, 0, cooldownFrames.Count - 1);
+        }
+
+        private static bool IsFallenKnightHeadFireTower(SpawnedEnemy enemy)
+            => IsFallenKnightHeadEnemy(enemy) &&
+               !enemy.IsReturningToOwner &&
+               (enemy.IsTelegraphing || enemy.IsAttacking);
+
+        private double GetFallenKnightHeadReturnProgress(SpawnedEnemy enemy)
+        {
+            if (!IsFallenKnightEnemy(enemy) ||
+                enemy.LinkedEnemy == null ||
+                !enemy.LinkedEnemy.IsReturningToOwner)
+                return 0;
+
+            var head = enemy.LinkedEnemy;
+            if (head.ReturnAnimationDuration <= 0)
+                return 1;
+            return Math.Clamp((double)head.ReturnAnimationTick / head.ReturnAnimationDuration, 0, 1);
+        }
+
+        private BitmapImage? GetFallenKnightRecoveryFrame(SpawnedEnemy enemy, List<BitmapImage> cooldownFrames)
+        {
+            if (!IsFallenKnightEnemy(enemy) || cooldownFrames.Count == 0)
+                return null;
+
+            if (enemy.LinkedEnemy == null || !enemy.LinkedEnemy.IsReturningToOwner)
+                return cooldownFrames[Math.Clamp(GetFallenKnightCooldownFrameIndex(enemy, cooldownFrames), 0, cooldownFrames.Count - 1)];
+
+            double progress = GetFallenKnightHeadReturnProgress(enemy);
+            if (progress < 0.35 || enemy.WalkFrames.Count == 0)
+                return cooldownFrames[cooldownFrames.Count - 1];
+
+            int walkFrameIndex = Math.Clamp(
+                (int)Math.Round(((progress - 0.35) / 0.65) * (enemy.WalkFrames.Count - 1)),
+                0,
+                enemy.WalkFrames.Count - 1);
+            return enemy.WalkFrames[walkFrameIndex];
+        }
+
+        private (double ScaleX, double ScaleY, double OffsetY) GetFallenKnightReassemblyVisuals(SpawnedEnemy enemy)
+        {
+            if (!IsFallenKnightEnemy(enemy) ||
+                enemy.LinkedEnemy == null ||
+                !enemy.LinkedEnemy.IsReturningToOwner)
+                return (1.0, 1.0, 0.0);
+
+            double progress = GetFallenKnightHeadReturnProgress(enemy);
+            double scaleX = FallenKnightReassemblyStartScaleX + ((1.0 - FallenKnightReassemblyStartScaleX) * progress);
+            double scaleY = FallenKnightReassemblyStartScaleY + ((1.0 - FallenKnightReassemblyStartScaleY) * progress);
+            double offsetY = (1.0 - progress) * FallenKnightReassemblyLiftPixels;
+            return (scaleX, scaleY, offsetY);
+        }
+
+        private (double ScaleX, double ScaleY, double HealthBarLift, double Opacity, bool UseBottomAnchor) GetFallenKnightHeadFireTowerVisuals(SpawnedEnemy enemy)
+        {
+            if (!IsFallenKnightHeadFireTower(enemy))
+                return (1.0, 1.0, 0.0, 1.0, false);
+
+            double progress;
+            if (enemy.IsTelegraphing)
+            {
+                int duration = Math.Max(1, enemy.TelegraphAnimationDuration);
+                progress = Math.Clamp((double)enemy.TelegraphAnimationTick / duration, 0, 1);
+            }
+            else
+            {
+                progress = 1.0;
+            }
+
+            double easedProgress = Math.Sin(progress * (Math.PI / 2.0));
+            double scaleX = 1.0 - ((1.0 - FallenKnightHeadFireTowerScaleX) * easedProgress);
+            double scaleY = 1.0 + ((FallenKnightHeadFireTowerScaleY - 1.0) * easedProgress);
+            double healthBarLift = enemy.Definition.Height * Math.Max(0, scaleY - 1.0);
+            double opacity = 1.0;
+            return (scaleX, scaleY, healthBarLift, opacity, true);
         }
 
         private double GetFrostlingSnowballBodyOffsetY(SpawnedEnemy enemy)
@@ -6508,6 +7338,7 @@ namespace TaskbarRPG
         {
             bool isSlime = enemy.Definition.Name.Equals("slime", StringComparison.OrdinalIgnoreCase);
             bool isGooBoss = enemy.Definition.Name.Equals("The Goo", StringComparison.OrdinalIgnoreCase);
+            bool isFallenKnightHead = IsFallenKnightHeadEnemy(enemy);
 
             if (HandleGooRecoveryState(enemy))
                 return;
@@ -6527,6 +7358,20 @@ namespace TaskbarRPG
 
             if (enemy.IsGrounded && enemy.BehaviorTimerFrames <= 0)
             {
+                if (isFallenKnightHead &&
+                    hasAggro &&
+                    enemy.SpecialActionCounter >= enemy.SpecialActionStep)
+                {
+                    enemy.Direction = playerCenterX >= enemy.X ? 1 : -1;
+                    enemy.HorizontalVelocity = 0;
+                    enemy.VerticalVelocity = 0;
+                    enemy.IsGrounded = true;
+                    enemy.SuppressContactDamage = true;
+                    SetEnemyBehavior(enemy, "fire_tower");
+                    StartEnemyTelegraph(enemy, FallenKnightHeadFireTowerChargeFrames);
+                    return;
+                }
+
                 if (!hasAggro)
                 {
                     // Wander hops: choose a random direction until the enemy has aggro.
@@ -6537,24 +7382,92 @@ namespace TaskbarRPG
                     else enemy.Direction = rng.NextDouble() < 0.5 ? -1 : 1;
                 }
 
-                double hopJumpMultiplier = isSlime ? 0.68 : 1.05;
+                double hopJumpMultiplier = isSlime ? 0.68 : isFallenKnightHead ? 0.88 : 1.05;
                 if (isGooBoss)
                 {
                     // Increase gravity + launch speed together so apex height stays about the same.
                     hopJumpMultiplier *= Math.Sqrt(1.35);
                 }
-                enemy.VerticalVelocity = gameConfig.JumpStrength * hopJumpMultiplier;
                 double hopSpeedBoost = hasAggro
                     ? 3.0
                     : (1.15 + (rng.NextDouble() * 0.95));
+                if (isFallenKnightHead)
+                {
+                    double currentEnemyCenterX = enemy.X + (enemy.Definition.Width / 2.0);
+                    double playerSideDirection = playerCenterX >= currentEnemyCenterX ? 1.0 : -1.0;
+                    double targetOffsetFromPlayer = rng.NextDouble() < 0.5
+                        ? playerSideDirection * GetRandomDouble(36, FallenKnightHeadJumpLandingSpread)
+                        : -playerSideDirection * GetRandomDouble(24, FallenKnightHeadJumpLandingSpread * 0.9);
+                    double targetX = Math.Clamp(
+                        playerCenterX + targetOffsetFromPlayer - (enemy.Definition.Width / 2.0),
+                        0,
+                        Math.Max(0, Width - enemy.Definition.Width));
+                    double deltaX = targetX - enemy.X;
+                    if (Math.Abs(deltaX) < FallenKnightHeadJumpMinDistance)
+                    {
+                        double preferredDirection = Math.Abs(deltaX) < 0.001
+                            ? (playerCenterX >= currentEnemyCenterX ? 1 : -1)
+                            : Math.Sign(deltaX);
+                        targetX = Math.Clamp(
+                            enemy.X + (preferredDirection * FallenKnightHeadJumpMinDistance),
+                            0,
+                            Math.Max(0, Width - enemy.Definition.Width));
+                        deltaX = targetX - enemy.X;
+                        if (Math.Abs(deltaX) < FallenKnightHeadJumpMinDistance)
+                        {
+                            preferredDirection *= -1;
+                            targetX = Math.Clamp(
+                                enemy.X + (preferredDirection * FallenKnightHeadJumpMinDistance),
+                                0,
+                                Math.Max(0, Width - enemy.Definition.Width));
+                            deltaX = targetX - enemy.X;
+                        }
+                    }
+
+                    const double airDrag = 0.985;
+                    int airFrames = Math.Clamp(
+                        FallenKnightHeadJumpMinAirFrames +
+                        (int)Math.Round(Math.Abs(deltaX) / 13.0) +
+                        rng.Next(-2, 4),
+                        FallenKnightHeadJumpMinAirFrames,
+                        FallenKnightHeadJumpMaxAirFrames);
+
+                    for (int frames = airFrames; frames <= FallenKnightHeadJumpMaxAirFrames; frames++)
+                    {
+                        double horizontalTravelFactor = (1.0 - Math.Pow(airDrag, frames)) / (1.0 - airDrag);
+                        double requiredSpeed = Math.Abs(deltaX) / Math.Max(0.001, horizontalTravelFactor);
+                        airFrames = frames;
+                        if (requiredSpeed <= FallenKnightHeadTargetedJumpMaxSpeed)
+                            break;
+                    }
+
+                    double horizontalTravel = (1.0 - Math.Pow(airDrag, airFrames)) / (1.0 - airDrag);
+                    enemy.Direction = deltaX >= 0 ? 1 : -1;
+                    enemy.HorizontalVelocity = horizontalTravel <= 0.001
+                        ? 0
+                        : Math.Clamp(
+                            deltaX / horizontalTravel,
+                            -FallenKnightHeadTargetedJumpMaxSpeed,
+                            FallenKnightHeadTargetedJumpMaxSpeed);
+                    enemy.VerticalVelocity = -(gameConfig.Gravity * (airFrames + 1) / 2.0);
+                    enemy.SpecialActionCounter++;
+                }
+                else
+                {
+                    enemy.VerticalVelocity = gameConfig.JumpStrength * hopJumpMultiplier;
+                }
+
                 if (isGooBoss)
                     hopSpeedBoost *= hasAggro ? 1.55 : 1.35;
-                enemy.HorizontalVelocity = enemy.Direction * enemy.Speed * hopSpeedBoost;
+                if (!isFallenKnightHead)
+                    enemy.HorizontalVelocity = enemy.Direction * enemy.Speed * hopSpeedBoost;
                 int hopIntervalFrames = isSlime
                     ? (int)Math.Round(enemy.Definition.BehaviorIntervalFrames * 0.74)
                     : enemy.Definition.BehaviorIntervalFrames;
                 if (isSlime && hasAggro)
                     hopIntervalFrames = (int)Math.Round(hopIntervalFrames / 1.4);
+                if (isFallenKnightHead)
+                    hopIntervalFrames = hasAggro ? 10 : 14;
                 if (isGooBoss)
                 {
                     hopIntervalFrames = (int)Math.Round(hopIntervalFrames * 0.66);
@@ -6921,18 +7834,41 @@ namespace TaskbarRPG
                     : enemy.IsTelegraphing && !hasTelegraphSprites
                         ? (((animationFrameCounter / 3) % 2 == 0) ? 0.55 : 1.0)
                         : 1.0;
-                enemy.Body.Opacity = baseOpacity * (enemy.IsDying ? enemy.DeathOpacity : 1.0);
+                var fallenKnightReassemblyVisuals = enemy.IsDying
+                    ? (1.0, 1.0, 0.0)
+                    : GetFallenKnightReassemblyVisuals(enemy);
+                var fallenKnightHeadTowerVisuals = enemy.IsDying
+                    ? (1.0, 1.0, 0.0, 1.0, false)
+                    : GetFallenKnightHeadFireTowerVisuals(enemy);
+                bool showEnemyLabel = !enemy.IsDying &&
+                    !(IsFallenKnightEnemy(enemy) && enemy.LinkedEnemy != null) &&
+                    !(IsFallenKnightHeadEnemy(enemy) && enemy.IsReturningToOwner) &&
+                    !IsFallenKnightHeadFireTower(enemy);
+                bool showEnemyHealth = !enemy.IsDying &&
+                    !((IsFallenKnightEnemy(enemy) && enemy.LinkedEnemy != null && !enemy.LinkedEnemy.IsReturningToOwner) ||
+                      (IsFallenKnightHeadEnemy(enemy) && enemy.IsReturningToOwner));
+                enemy.Label.Visibility = showEnemyLabel ? Visibility.Visible : Visibility.Hidden;
+                enemy.HealthBg.Visibility = showEnemyHealth ? Visibility.Visible : Visibility.Hidden;
+                enemy.HealthFill.Visibility = showEnemyHealth ? Visibility.Visible : Visibility.Hidden;
+                enemy.Body.Opacity = baseOpacity *
+                    (enemy.IsDying ? enemy.DeathOpacity : fallenKnightHeadTowerVisuals.Item4);
                 Canvas.SetLeft(enemy.Body, drawX);
-                double bodyTop = enemy.Y + enemy.SpriteGroundOffsetY + GetFrostlingSnowballBodyOffsetY(enemy) + (enemy.IsDying ? enemy.DeathOffsetY : 0);
+                double bodyTop = enemy.Y + enemy.SpriteGroundOffsetY + GetFrostlingSnowballBodyOffsetY(enemy) +
+                    (enemy.IsDying ? enemy.DeathOffsetY : fallenKnightReassemblyVisuals.Item3);
                 double spriteCenterX = drawX + (spriteWidth / 2.0);
                 Canvas.SetTop(enemy.Body, bodyTop);
+                DrawFallenKnightHeadTrail(enemy);
 
                 if (enemy.BodySprite != null)
                 {
-                    enemy.BodySprite.RenderTransformOrigin = new Point(0.5, 0.5);
+                    enemy.BodySprite.RenderTransformOrigin = fallenKnightHeadTowerVisuals.Item5
+                        ? new Point(0.5, 1.0)
+                        : new Point(0.5, 0.5);
                     var transformGroup = new TransformGroup();
-                    double scaleX = enemy.IsDying ? enemy.DeathScaleX : 1.0;
-                    double scaleY = enemy.IsDying ? enemy.DeathScaleY : 1.0;
+                    double scaleX = (enemy.IsDying ? enemy.DeathScaleX : fallenKnightReassemblyVisuals.Item1) *
+                        fallenKnightHeadTowerVisuals.Item1;
+                    double scaleY = (enemy.IsDying ? enemy.DeathScaleY : fallenKnightReassemblyVisuals.Item2) *
+                        fallenKnightHeadTowerVisuals.Item2;
                     double rotation = enemy.SpriteRotationDegrees + (enemy.IsDying ? enemy.DeathRotationDegrees : 0);
                     transformGroup.Children.Add(new ScaleTransform((enemy.Direction >= 0 ? 1 : -1) * scaleX, scaleY));
                     transformGroup.Children.Add(new RotateTransform(rotation));
@@ -6940,7 +7876,7 @@ namespace TaskbarRPG
                 }
 
                 Canvas.SetLeft(enemy.Label, spriteCenterX - (enemy.Label.Width / 2.0));
-                Canvas.SetTop(enemy.Label, bodyTop - 14);
+                Canvas.SetTop(enemy.Label, bodyTop - 14 - fallenKnightHeadTowerVisuals.Item3);
 
                 double hpRatio = enemy.Definition.MaxHealth > 0
                     ? (double)enemy.CurrentHealth / enemy.Definition.MaxHealth : 0;
@@ -6948,9 +7884,9 @@ namespace TaskbarRPG
                 enemy.HealthFill.Width = 28 * Math.Max(0, hpRatio);
                 double healthBarX = spriteCenterX - (enemy.HealthBg.Width / 2.0);
                 Canvas.SetLeft(enemy.HealthBg, healthBarX);
-                Canvas.SetTop(enemy.HealthBg, bodyTop - 22);
+                Canvas.SetTop(enemy.HealthBg, bodyTop - 22 - fallenKnightHeadTowerVisuals.Item3);
                 Canvas.SetLeft(enemy.HealthFill, healthBarX);
-                Canvas.SetTop(enemy.HealthFill, bodyTop - 22);
+                Canvas.SetTop(enemy.HealthFill, bodyTop - 22 - fallenKnightHeadTowerVisuals.Item3);
 
                 Rect enemyCollisionRect = GetEnemyCollisionRect(enemy);
                 enemy.AttackHitbox.Width = enemyCollisionRect.Width;
@@ -7024,6 +7960,7 @@ namespace TaskbarRPG
 
             RemoveEnemyHazardsForOwner(enemy);
             RemoveEnemyProjectilesForOwner(enemy);
+            RemoveEnemyTrailVisuals(enemy);
             if (IsFallenKnightEnemy(enemy) && enemy.LinkedEnemy != null)
             {
                 RemoveEnemyWithoutRewards(enemy.LinkedEnemy);
@@ -7641,6 +8578,15 @@ namespace TaskbarRPG
                 return new Rect(enemy.X, enemy.Y, 0, 0);
 
             var (drawX, spriteWidth) = GetEnemySpriteDrawMetrics(enemy);
+            if (IsFallenKnightHeadFireTower(enemy))
+            {
+                double towerHitboxWidth = Math.Max(34, enemy.Definition.Width * 1.18);
+                double towerHitboxHeight = Math.Max(96, enemy.Definition.Height * 2.65);
+                double towerHitboxX = drawX + ((spriteWidth - towerHitboxWidth) / 2.0);
+                double towerHitboxY = enemy.Y + enemy.Definition.Height - towerHitboxHeight;
+                return new Rect(towerHitboxX, towerHitboxY, towerHitboxWidth, towerHitboxHeight);
+            }
+
             if (IsFallenKnightBodyCollapsed(enemy))
             {
                 double hitboxWidth = Math.Min(spriteWidth, FallenKnightCollapsedHitboxWidth);
@@ -7876,9 +8822,9 @@ namespace TaskbarRPG
             Canvas.SetLeft(playerHealthFill, hudX);
             Canvas.SetTop(playerHealthFill, hudY);
 
-            playerHealthText.Text = $"{playerData.Health}/{playerData.MaxHealth}";
-            Canvas.SetLeft(playerHealthText, playerX - 18);
-            Canvas.SetTop(playerHealthText, playerY - 36);
+            playerHealthText.Text = $"Lv {playerData.Level}";
+            Canvas.SetLeft(playerHealthText, Math.Max(20, (Width - playerHealthText.Width) / 2.0));
+            Canvas.SetTop(playerHealthText, 8);
 
             playerArrowText.Text = $"Arrows:{playerData.GetArrowCount()}";
             Canvas.SetLeft(playerArrowText, playerX - 18);
