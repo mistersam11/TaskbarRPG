@@ -3,4 +3,4 @@ Plains;1-2;slime;5AAA50
 Plains;3-4;slime,wolf;5AAA50
 Cave;6-7;bat,crawler;5F5F69
 Cave;8-9;bat,crawler,frostling;5F5F69
-Firelands;11-14;bat;B85423
+Firelands;11-14;slime,wolf,bat,crawler,frostling,emberling;B85423

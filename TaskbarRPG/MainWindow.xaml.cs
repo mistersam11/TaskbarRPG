@@ -64,6 +64,19 @@ namespace TaskbarRPG
         Sink
     }
 
+    public enum Db5000EncounterPhase
+    {
+        Inactive,
+        AwaitTrigger,
+        HelicopterApproach,
+        PackageDrop,
+        HelicopterDeparture,
+        PackageDormant,
+        Transforming,
+        Pose,
+        Active
+    }
+
     public enum ZoneContentType
     {
         None,
@@ -367,11 +380,26 @@ namespace TaskbarRPG
 
     public static class AreaDefinitions
     {
+        private const double FirelandsDurabilityHealthMultiplier = 1.35;
+        private const double FirelandsDurabilityDamageMultiplier = 1.08;
+        private const int FirelandsMinimumHealthBase = 28;
+        private const int FirelandsMinimumHealthPerLevel = 6;
+
         private static readonly List<BossTemplate> defaultBossTemplates = new()
         {
             new BossTemplate { Name = "The Goo", Health = 80, AttackDamage = 20, MoveSpeed = 1.05, Width = 64, Height = 64, BehaviorIds = new() { "hop_contact", "dash_strike" }, BehaviorIntervalFrames = 42 },
             new BossTemplate { Name = "Fallen Knight", Health = 190, AttackDamage = 22, MoveSpeed = 0.0, Width = 96, Height = 180, BehaviorIds = new() { "spike_field", "snowball_heave", "fire_head" }, BehaviorIntervalFrames = 44 },
-            new BossTemplate { Name = "DB-5000", Health = 130, AttackDamage = 24, MoveSpeed = 1.1, Width = 72, Height = 64, BehaviorIds = new() { "melee_chaser" }, BehaviorIntervalFrames = 30 },
+            new BossTemplate
+            {
+                Name = "DB-5000",
+                Health = 360,
+                AttackDamage = 28,
+                MoveSpeed = 0.72,
+                Width = 180,
+                Height = 176,
+                BehaviorIds = new() { "stomp", "electro_mines" },
+                BehaviorIntervalFrames = 52
+            },
         };
 
         private static readonly List<BossTemplate> bossTemplates = new();
@@ -485,6 +513,8 @@ namespace TaskbarRPG
                     EnemyNames = enemyTemplates.Select(e => e.Name).ToList(),
                     GroundColor = Color.FromRgb(90, 170, 80)
                 };
+            BiomeType? chosenBiome = ParseBiomeName(chosenArea.Name);
+            bool isFirelands = chosenBiome == BiomeType.Firelands;
 
             int count = rng.Next(4, 9);
             var spawns = new List<EnemyDefinition>();
@@ -510,6 +540,14 @@ namespace TaskbarRPG
                     dmgScale *= 1.05 + ((stage - 5) * 0.015);
                 }
                 int enemyLevel = Math.Max(1, chosen.Level + (stage / 5));
+                if (isFirelands)
+                {
+                    hpScale *= FirelandsDurabilityHealthMultiplier;
+                    dmgScale *= FirelandsDurabilityDamageMultiplier;
+                }
+                int maxHealth = Math.Max(2, (int)Math.Round(chosen.Health * hpScale));
+                if (isFirelands)
+                    maxHealth = Math.Max(maxHealth, FirelandsMinimumHealthBase + (enemyLevel * FirelandsMinimumHealthPerLevel));
                 spawns.Add(new EnemyDefinition
                 {
                     Name = chosen.Name,
@@ -520,11 +558,11 @@ namespace TaskbarRPG
                     PatrolRange = 90 + rng.Next(0, 70),
                     AggroRange = 160 + rng.Next(0, 70),
                     Speed = Math.Max(0.4, chosen.MoveSpeed),
-                    MaxHealth = Math.Max(2, (int)Math.Round(chosen.Health * hpScale)),
+                    MaxHealth = maxHealth,
                     ContactDamage = Math.Max(1, (int)Math.Round(chosen.AttackDamage * dmgScale)),
-                    XpReward = Math.Max(4, 6 + (enemyLevel * 2)),
-                    GoldMin = Math.Max(1, enemyLevel / 2),
-                    GoldMax = Math.Max(2, enemyLevel + 2),
+                    XpReward = Math.Max(4, 6 + (enemyLevel * 2) + (isFirelands ? 4 : 0)),
+                    GoldMin = Math.Max(1, (enemyLevel / 2) + (isFirelands ? 1 : 0)),
+                    GoldMax = Math.Max(2, enemyLevel + 2 + (isFirelands ? 2 : 0)),
                     Width = Math.Max(10, chosen.Width),
                     Height = Math.Max(10, chosen.Height),
                     AttackHitboxWidth = Math.Max(8, chosen.AttackHitboxWidth),
@@ -545,7 +583,7 @@ namespace TaskbarRPG
                 Type = AreaType.Adventure,
                 Name = $"Stage {stage} - {chosenArea.Name}",
                 GroundColor = chosenArea.GroundColor,
-                Biome = ParseBiomeName(chosenArea.Name),
+                Biome = chosenBiome,
                 StageNumber = stage,
                 IsBossArea = false,
                 Zones = CreateEmptyZones(),
@@ -630,12 +668,31 @@ namespace TaskbarRPG
                 boss.CollisionHitboxOffsetY = Math.Max(0, template.Height - boss.CollisionHitboxHeight.Value);
             }
 
+            Color groundColor = Color.FromRgb(70, 65, 75);
+            BiomeType? bossBiome = null;
+            if (template.Name.Equals("DB-5000", StringComparison.OrdinalIgnoreCase))
+            {
+                boss.X = 1140;
+                boss.PatrolRange = 0;
+                boss.AggroRange = 2400;
+                boss.Speed = Math.Max(0.62, template.MoveSpeed);
+                boss.AttackHitboxWidth = Math.Max(88, template.Width * 0.56);
+                boss.AttackHitboxHeight = Math.Max(118, template.Height * 0.74);
+                boss.CollisionHitboxWidth = Math.Max(98, template.Width * 0.56);
+                boss.CollisionHitboxHeight = Math.Max(138, template.Height * 0.8);
+                boss.CollisionHitboxOffsetX = (template.Width - boss.CollisionHitboxWidth.Value) / 2.0;
+                boss.CollisionHitboxOffsetY = Math.Max(20, template.Height - boss.CollisionHitboxHeight.Value);
+                boss.Color = Color.FromRgb(214, 92, 32);
+                groundColor = Color.FromRgb(116, 58, 24);
+                bossBiome = BiomeType.Firelands;
+            }
+
             return new Area
             {
                 Type = AreaType.Adventure,
                 Name = $"Stage {stage} - Boss",
-                GroundColor = Color.FromRgb(70, 65, 75),
-                Biome = null,
+                GroundColor = groundColor,
+                Biome = bossBiome,
                 StageNumber = stage,
                 IsBossArea = true,
                 Zones = CreateEmptyZones(),
@@ -948,6 +1005,7 @@ namespace TaskbarRPG
         public bool SuppressRewards = false;
         public bool IsInvulnerable = false;
         public bool SuppressContactDamage = false;
+        public bool HideFromView = false;
         public int SpecialActionStep = 0;
         public int SpecialActionCounter = 0;
         public int FallenKnightSpikeAttacksCompleted = 0;
@@ -985,6 +1043,7 @@ namespace TaskbarRPG
         public FrameworkElement Body = null!;
         public Image? BodySprite = null;
         public List<BitmapImage> Frames { get; set; } = new();
+        public string Variant = "";
         public double X;
         public double Y;
         public int Direction = 1;
@@ -998,6 +1057,12 @@ namespace TaskbarRPG
         public bool IsAlive = true;
         public bool HasAppliedDamage = false;
         public bool DespawnWhenTopTouchesGround = false;
+        public int StateStep = 0;
+        public int StateTick = 0;
+        public int StateDuration = 0;
+        public double TargetX = double.NaN;
+        public double TargetY = double.NaN;
+        public int BurstDelayFrames = 0;
     }
 
     public class SpawnedEnemyHazard
@@ -1009,6 +1074,7 @@ namespace TaskbarRPG
         public Ellipse? TelegraphGlow = null;
         public List<BitmapImage> RiseFrames { get; set; } = new();
         public List<BitmapImage> SinkFrames { get; set; } = new();
+        public string Variant = "";
         public double X;
         public double Y;
         public double Width;
@@ -1030,6 +1096,10 @@ namespace TaskbarRPG
         public EnemyHazardPhase Phase = EnemyHazardPhase.Delay;
         public bool IsAlive = true;
         public bool HasAppliedDamage = false;
+        public double HorizontalVelocity;
+        public double VerticalVelocity;
+        public int SpecialActionCounter;
+        public int SpecialActionStep;
     }
 
     public class TransientVisualEffect
@@ -1048,6 +1118,25 @@ namespace TaskbarRPG
         public double EndOpacity = 0.0;
         public double StartScale = 1.0;
         public double EndScale = 0.0;
+        public bool IsAlive = true;
+    }
+
+    public class AnimatedSceneSprite
+    {
+        public FrameworkElement Body = null!;
+        public Image? BodySprite = null;
+        public List<BitmapImage> Frames { get; set; } = new();
+        public double X;
+        public double Y;
+        public double Width;
+        public double Height;
+        public int Direction = 1;
+        public int AnimationTick = 0;
+        public int AnimationCadence = 6;
+        public double Opacity = 1.0;
+        public double ScaleX = 1.0;
+        public double ScaleY = 1.0;
+        public double RotationDegrees = 0.0;
         public bool IsAlive = true;
     }
 
@@ -1309,6 +1398,19 @@ namespace TaskbarRPG
             return LoadFramesFromDirectory(IOPath.Combine(AppContext.BaseDirectory, "Assets", "Enemy"), normalized, action);
         }
 
+        private List<BitmapImage> LoadDb5000EffectFrames(string assetName, string action)
+        {
+            string normalizedAsset = assetName.Trim().ToLowerInvariant();
+            string normalizedAction = action.Trim().ToLowerInvariant();
+            string cacheKey = $"{normalizedAsset}:{normalizedAction}";
+            if (db5000EffectFramesCache.TryGetValue(cacheKey, out var cachedFrames))
+                return cachedFrames;
+
+            var frames = LoadEnemyFrames(normalizedAsset, normalizedAction);
+            db5000EffectFramesCache[cacheKey] = frames;
+            return frames;
+        }
+
         private List<BitmapImage> LoadEnemyBehaviorFrames(string enemyName, string behaviorId, string phase)
         {
             string normalizedBehavior = behaviorId.Trim().ToLowerInvariant();
@@ -1518,7 +1620,8 @@ namespace TaskbarRPG
 
             if (!enemy.Definition.Name.Equals("The Goo", StringComparison.OrdinalIgnoreCase))
             {
-                if (enemy.Definition.Name.Equals("Fallen Knight", StringComparison.OrdinalIgnoreCase))
+                if (enemy.Definition.Name.Equals("Fallen Knight", StringComparison.OrdinalIgnoreCase) ||
+                    enemy.Definition.Name.Equals("DB-5000", StringComparison.OrdinalIgnoreCase))
                 {
                     enemy.SpecialActionStep = 0;
                     enemy.SpecialActionCounter = 0;
@@ -1570,6 +1673,8 @@ namespace TaskbarRPG
             if (definition.Name.Equals("wolf", StringComparison.OrdinalIgnoreCase))
                 return 12;
             if (definition.Name.Equals("frostling", StringComparison.OrdinalIgnoreCase))
+                return 2;
+            if (definition.Name.Equals("DB-5000", StringComparison.OrdinalIgnoreCase))
                 return 2;
 
             return 0;
@@ -1695,6 +1800,8 @@ namespace TaskbarRPG
         private AreaTransition transition = null!;
         private readonly Dictionary<int, Area> stageAreas = new();
         private readonly Dictionary<BitmapSource, ImageBrush> playerLevelUpPulseMasks = new();
+        private readonly Dictionary<BitmapSource, Int32Rect> spriteOpaqueBoundsCache = new();
+        private readonly Dictionary<string, List<BitmapImage>> db5000EffectFramesCache = new(StringComparer.OrdinalIgnoreCase);
         private int currentStageNumber = 0;
         private int highestUnlockedStage = 1;
 
@@ -1739,6 +1846,17 @@ namespace TaskbarRPG
         private bool controlsEnabled = true;
         private PanelMode panelMode = PanelMode.None;
         private bool stageTookDamage = false;
+        private bool playerControlLocked = false;
+
+        private Db5000EncounterPhase db5000EncounterPhase = Db5000EncounterPhase.Inactive;
+        private AnimatedSceneSprite? db5000HelicopterSprite = null;
+        private AnimatedSceneSprite? db5000CargoSprite = null;
+        private double db5000LockedPlayerX = 0;
+        private double db5000PlayerCenterOffsetFromMidpoint = 0;
+        private double db5000HelicopterTargetCenterX = 0;
+        private double db5000RobotTargetX = 0;
+        private int db5000EncounterTimer = 0;
+        private int db5000AttackPatternIndex = 0;
 
         private bool isAttacking = false;
         private bool isDownAttack = false;
@@ -1775,6 +1893,9 @@ namespace TaskbarRPG
         private const int FrostlingIcicleDelayStepFrames = 2;
         private const int FrostlingIcicleBurstCount = 28;
         private const int FrostlingIcicleDamage = 11;
+        private const double FrostlingIcicleHeightScale = 0.5;
+        private const double FrostlingIcicleMaxHeight = 46;
+        private const double FrostlingIcicleHitboxHeightScale = 0.46;
         private const int FallenKnightSpikeTelegraphFrames = 26;
         private const int FallenKnightSpikeRiseFrames = 9;
         private const int FallenKnightSpikeHoldFrames = 10;
@@ -1816,6 +1937,17 @@ namespace TaskbarRPG
         private const int FallenKnightHeadSplashSinkFrames = 6;
         private const double FallenKnightHeadSplashHitboxWidth = 84;
         private const double FallenKnightHeadSplashHitboxHeight = 28;
+        private const int EmberlingJumpMinAirFrames = 16;
+        private const int EmberlingJumpMaxAirFrames = 28;
+        private const double EmberlingJumpMinDistance = 42;
+        private const double EmberlingJumpLandingSpread = 92;
+        private const double EmberlingTargetedJumpMaxSpeed = 8.6;
+        private const double EmberlingSplashMinImpactSpeed = 4.1;
+        private const int EmberlingSplashHoldFrames = 6;
+        private const int EmberlingSplashRiseFrames = 5;
+        private const int EmberlingSplashSinkFrames = 6;
+        private const double EmberlingSplashHitboxWidth = 56;
+        private const double EmberlingSplashHitboxHeight = 22;
         private const double FallenKnightHeadFireTowerScaleX = 0.58;
         private const double FallenKnightHeadFireTowerScaleY = 4.25;
         private const double FallenKnightReassemblyStartScaleX = 0.86;
@@ -1824,6 +1956,76 @@ namespace TaskbarRPG
         private const int FallenKnightReassemblyFlashCycleFrames = 18;
         private const double FallenKnightCollapsedHitboxHeight = 26;
         private const double FallenKnightCollapsedHitboxWidth = 92;
+        private const int Db5000LavaBurstTelegraphFrames = 24;
+        private const int Db5000LavaBurstBaseAttackFrames = 54;
+        private const int Db5000LavaBurstVolleyCount = 5;
+        private const int Db5000LavaBurstFirstShotTick = 8;
+        private const int Db5000LavaBurstShotIntervalFrames = 7;
+        private const int Db5000AttackCooldownFrames = 48;
+        private const double Db5000ShellGravity = 0.25;
+        private const double Db5000ShellBaseTravelFrames = 26;
+        private const double Db5000ShellTravelFrameStep = 3.2;
+        private const double Db5000ShellLandingSpread = 72;
+        private const int Db5000FlamePillarTelegraphFrames = 28;
+        private const int Db5000FlamePillarRiseFrames = 8;
+        private const int Db5000FlamePillarHoldFrames = 12;
+        private const int Db5000FlamePillarSinkFrames = 8;
+        private const int Db5000FlamePillarDamage = 20;
+        private const int Db5000FlamePillarSlotCount = 26;
+        private const int Db5000FlamePillarMinSafeSlots = 2;
+        private const int Db5000FlamePillarMaxSafeSlots = 3;
+        private const string Db5000TeslaMortarsBehavior = "tesla_mortars";
+        private const string Db5000ChainLightningBehavior = "chain_lightning";
+        private const string Db5000ConductorGridBehavior = "conductor_grid";
+        private const string Db5000MagnetPulseBehavior = "magnet_pulse";
+        private const string Db5000RailSweepBehavior = "rail_sweep";
+        private const string Db5000StaticMinesBehavior = "static_mines";
+        private const string Db5000ThunderDropBehavior = "thunder_drop";
+        private const string Db5000OverloadOrbsBehavior = "overload_orbs";
+        private const string Db5000CapacitorWallsBehavior = "capacitor_walls";
+        private const string Db5000EmpBurstBehavior = "emp_burst";
+        private const int Db5000ElectricAttackCooldownFrames = 54;
+        private const int Db5000TeslaMortarTelegraphFrames = 30;
+        private const int Db5000ChainLightningTelegraphFrames = 34;
+        private const int Db5000ConductorGridTelegraphFrames = 34;
+        private const int Db5000MagnetPulseTelegraphFrames = 36;
+        private const int Db5000RailSweepTelegraphFrames = 34;
+        private const int Db5000StaticMinesTelegraphFrames = 30;
+        private const int Db5000ThunderDropTelegraphFrames = 32;
+        private const int Db5000OverloadOrbsTelegraphFrames = 30;
+        private const int Db5000CapacitorWallsTelegraphFrames = 36;
+        private const int Db5000EmpBurstTelegraphFrames = 40;
+        private const int Db5000HazardRiseFrames = 5;
+        private const int Db5000HazardSinkFrames = 8;
+        private const int Db5000HazardHoldFrames = 12;
+        private const int Db5000TeslaMortarVolleyCount = 4;
+        private const int Db5000TeslaMortarProjectileDamage = 18;
+        private const int Db5000ElectricHazardDamage = 22;
+        private const int Db5000StaticMineDamage = 20;
+        private const int Db5000GridBeamDamage = 18;
+        private const int Db5000EmpSlowFrames = 95;
+        private const int Db5000EmpJumpLockFrames = 55;
+        private const double Db5000EmpMoveSpeedMultiplier = 0.62;
+        private const string Db5000StompBehavior = "stomp";
+        private const string Db5000ElectroMinesBehavior = "electro_mines";
+        private const int Db5000IntroHelicopterCadence = 6;
+        private const int Db5000IntroPackageCadence = 10;
+        private const double Db5000IntroStageOffset = 210;
+        private const double Db5000IntroHelicopterY = 26;
+        private const double Db5000IntroHelicopterApproachSpeed = 4.6;
+        private const double Db5000IntroHelicopterDepartureSpeed = 7.4;
+        private const double Db5000IntroPackageDropSpeed = 5.2;
+        private const int Db5000IntroPackageDormantFrames = 26;
+        private const int Db5000IntroPoseFrames = 58;
+        private const int Db5000StompTelegraphFrames = 42;
+        private const int Db5000StompAttackFrames = 46;
+        private const int Db5000ElectroMineTelegraphFrames = 38;
+        private const int Db5000ElectroMineAttackFrames = 48;
+        private const int Db5000NewAttackCooldownFrames = 54;
+        private const int Db5000StompHazardDamage = 24;
+        private const int Db5000ElectroMineProjectileDamage = 18;
+        private const int Db5000ElectroBallProjectileDamage = 14;
+        private const int Db5000MineChargeFrames = 62;
         private const double EnemyProjectileDefaultHitboxScale = 0.64;
         private const int VisualEffectTrailLifetimeFrames = 14;
         private const int VisualEffectBurstLifetimeFrames = 20;
@@ -1850,6 +2052,8 @@ namespace TaskbarRPG
         private double mapPulseTime = 0;
         private int playerDamageCooldownFrames = 0;
         private const int PlayerDamageCooldownMax = 35;
+        private int playerEmpSlowFrames = 0;
+        private int playerEmpJumpLockFrames = 0;
         private int statusFramesRemaining = 0;
 
         // -----------------------------------------------------------------------
@@ -1967,7 +2171,7 @@ namespace TaskbarRPG
                     "Plains;3-4;slime,wolf;5AAA50\n" +
                     "Cave;6-7;bat,crawler;5F5F69\n" +
                     "Cave;8-9;bat,crawler,frostling;5F5F69\n" +
-                    "Firelands;11-14;bat;B85423";
+                    "Firelands;11-14;slime,wolf,bat,crawler,frostling,emberling;B85423";
                 System.IO.File.WriteAllText(path, seed);
             }
 
@@ -2136,6 +2340,26 @@ namespace TaskbarRPG
                     CollisionHitboxOffsetX = 10,
                     CollisionHitboxOffsetY = 8,
                 },
+                new EnemyTemplate
+                {
+                    Name = "emberling",
+                    Health = 38,
+                    AttackDamage = 18,
+                    MoveSpeed = 1.7,
+                    Level = 11,
+                    AllowedBiomes = new HashSet<BiomeType> { BiomeType.Firelands },
+                    StageRanges = new List<(int Min, int Max)> { (11, 14) },
+                    Width = 40,
+                    Height = 44,
+                    AttackHitboxWidth = 28,
+                    AttackHitboxHeight = 20,
+                    BehaviorIds = new List<string> { "dash_strike", "hop_contact" },
+                    BehaviorIntervalFrames = 28,
+                    CollisionHitboxWidth = 26,
+                    CollisionHitboxHeight = 22,
+                    CollisionHitboxOffsetX = 7,
+                    CollisionHitboxOffsetY = 18,
+                },
             });
         }
 
@@ -2150,7 +2374,7 @@ namespace TaskbarRPG
                     "# name;health;attackdamage;movespeed;width(optional);height(optional);behaviors(optional);behaviorintervalframes(optional)\n" +
                     "The Goo;80;20;1.05;64;64;hop_contact,dash_strike;42\n" +
                     "Fallen Knight;190;22;0.00;96;180;spike_field,snowball_heave,fire_head;44\n" +
-                    "DB-5000;130;24;1.10;72;64;melee_chaser;30";
+                    "DB-5000;360;28;0.72;180;176;stomp,electro_mines;52";
                 System.IO.File.WriteAllText(path, seed);
             }
 
@@ -2667,10 +2891,17 @@ namespace TaskbarRPG
         }
 
         private bool HasOutOfCombatMoveSpeedBoost()
-            => currentArea.Type == AreaType.Town || (currentStageNumber > 0 && activeEnemies.Count == 0);
+            => currentArea.Type == AreaType.Town ||
+               (currentStageNumber > 0 &&
+                activeEnemies.All(enemy => !enemy.IsAlive || enemy.IsDying || enemy.HideFromView));
 
         private double GetCurrentPlayerMoveSpeed()
-            => moveSpeed * (HasOutOfCombatMoveSpeedBoost() ? OutOfCombatMoveSpeedMultiplier : 1.0);
+        {
+            double speed = moveSpeed * (HasOutOfCombatMoveSpeedBoost() ? OutOfCombatMoveSpeedMultiplier : 1.0);
+            if (playerEmpSlowFrames > 0)
+                speed *= Db5000EmpMoveSpeedMultiplier;
+            return speed;
+        }
 
         private List<int> GetUnlockedFastTravelStages()
         {
@@ -3155,6 +3386,10 @@ namespace TaskbarRPG
 
             if (playerDamageCooldownFrames > 0)
                 playerDamageCooldownFrames--;
+            if (playerEmpSlowFrames > 0)
+                playerEmpSlowFrames--;
+            if (playerEmpJumpLockFrames > 0)
+                playerEmpJumpLockFrames--;
             if (meleeCooldownFrames > 0)
                 meleeCooldownFrames--;
             if (bowCooldownFrames > 0)
@@ -3183,6 +3418,7 @@ namespace TaskbarRPG
             UpdateNpcAnimations();
             DrawInteractionIndicators();
             DrawEnemies();
+            DrawDb5000EncounterVisuals();
             DrawEnemyHazards();
             DrawVisualEffects();
             DrawEnemyProjectiles();
@@ -3258,6 +3494,15 @@ namespace TaskbarRPG
             {
                 velocityX = 0;
                 CancelBowCharge();
+                CacheLastFrameInput();
+                return;
+            }
+
+            if (playerControlLocked)
+            {
+                velocityX = 0;
+                if (isBowCharging)
+                    CancelBowCharge();
                 CacheLastFrameInput();
                 return;
             }
@@ -3358,7 +3603,7 @@ namespace TaskbarRPG
             if (leftHeld && !rightHeld) { velocityX = -currentMoveSpeed; facingRight = false; }
             if (rightHeld && !leftHeld) { velocityX = currentMoveSpeed; facingRight = true; }
 
-            if (jumpPressedThisFrame && isOnGround)
+            if (jumpPressedThisFrame && isOnGround && playerEmpJumpLockFrames <= 0)
             {
                 velocityY = jumpStrength;
                 isOnGround = false;
@@ -3992,12 +4237,76 @@ namespace TaskbarRPG
             ClearEnemies();
             ClearEnemyProjectiles();
             ClearVisualEffects();
+            ResetDb5000EncounterState();
             ClearProjectiles();
             SpawnGroundDecorations(currentArea);
             SpawnAreaZones(currentArea);
             SpawnEnemies(currentArea);
+            InitializeDb5000EncounterState();
             UpdateExitTexts();
             SaveGameState();
+        }
+
+        private static bool IsDb5000BossArea(Area area)
+        {
+            return area.IsBossArea &&
+                area.EnemySpawns.Any(def => def.Name.Equals("DB-5000", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private SpawnedEnemy? FindDb5000Enemy()
+            => activeEnemies.FirstOrDefault(IsDb5000Enemy);
+
+        private void ResetDb5000EncounterState()
+        {
+            playerControlLocked = false;
+            db5000EncounterPhase = Db5000EncounterPhase.Inactive;
+            db5000LockedPlayerX = 0;
+            db5000PlayerCenterOffsetFromMidpoint = 0;
+            db5000HelicopterTargetCenterX = 0;
+            db5000RobotTargetX = 0;
+            db5000EncounterTimer = 0;
+            db5000AttackPatternIndex = 0;
+            ClearDb5000EncounterVisuals();
+        }
+
+        private void InitializeDb5000EncounterState()
+        {
+            if (!IsDb5000BossArea(currentArea))
+                return;
+
+            db5000EncounterPhase = Db5000EncounterPhase.AwaitTrigger;
+            db5000AttackPatternIndex = 0;
+            db5000EncounterTimer = 0;
+        }
+
+        private double GetDb5000MidpointOffset()
+            => Math.Min(Db5000IntroStageOffset, Width * 0.16);
+
+        private double GetDb5000PlayerLockX()
+        {
+            double midpoint = Width / 2.0;
+            double desiredCenterX = midpoint - GetDb5000MidpointOffset();
+            return Math.Clamp(desiredCenterX - (playerWidth / 2.0), 0, Math.Max(0, Width - playerWidth));
+        }
+
+        private double GetDb5000RobotSpriteWidth(SpawnedEnemy enemy)
+        {
+            if (enemy.BodySprite?.Source is BitmapSource currentFrame)
+                return GetSpriteWidthForHeight(currentFrame, enemy.Definition.Height);
+
+            return enemy.Definition.Width;
+        }
+
+        private double GetDb5000DrawXForCenter(SpawnedEnemy enemy, double centerX)
+            => centerX - (GetDb5000RobotSpriteWidth(enemy) / 2.0);
+
+        private double GetDb5000LogicalXForDrawX(SpawnedEnemy enemy, double drawX, int direction)
+        {
+            double spriteWidth = GetDb5000RobotSpriteWidth(enemy);
+            if (direction < 0 && spriteWidth > enemy.Definition.Width)
+                return drawX + (spriteWidth - enemy.Definition.Width);
+
+            return drawX;
         }
 
         private void RefreshTownShops()
@@ -4229,6 +4538,10 @@ namespace TaskbarRPG
 
                 case BiomeType.Cave:
                     SpawnCaveGroundDecorations(area, decorationRng);
+                    break;
+
+                case BiomeType.Firelands:
+                    SpawnFirelandsGroundDecorations(area, decorationRng);
                     break;
             }
 
@@ -4484,6 +4797,187 @@ namespace TaskbarRPG
             }
         }
 
+        private void SpawnFirelandsGroundDecorations(Area area, Random decorationRng)
+        {
+            int crackCount = Math.Max(12, (int)Math.Round(Width / 140.0));
+            int spireCount = Math.Max(9, (int)Math.Round(Width / 170.0));
+            int emberCount = Math.Max(10, (int)Math.Round(Width / 150.0));
+            Color basaltDark = AdjustColor(area.GroundColor, -58, -42, -34);
+            Color basaltMid = AdjustColor(area.GroundColor, -30, -18, -14);
+            Color basaltLight = AdjustColor(area.GroundColor, 18, 6, -2);
+            Color lavaCore = Color.FromRgb(255, 205, 102);
+            Color lavaMid = Color.FromRgb(255, 128, 46);
+            Color lavaDark = Color.FromRgb(196, 58, 22);
+
+            for (int i = 0; i < crackCount; i++)
+            {
+                double crackWidth = NextDouble(decorationRng, 18, 34);
+                double crackHeight = NextDouble(decorationRng, 4, 8);
+                double x = NextDouble(decorationRng, 12, Math.Max(18, Width - crackWidth - 12));
+                var crack = new Canvas
+                {
+                    Width = crackWidth,
+                    Height = crackHeight,
+                    Opacity = NextDouble(decorationRng, 0.8, 0.96)
+                };
+
+                double left = 0;
+                double quarter = crackWidth * 0.24;
+                double middle = crackWidth * 0.5;
+                double threeQuarter = crackWidth * 0.76;
+                double right = crackWidth;
+                double midY = crackHeight * 0.55;
+
+                var glow = new Polyline
+                {
+                    Stroke = new SolidColorBrush(Color.FromArgb(128, lavaCore.R, lavaCore.G, lavaCore.B)),
+                    StrokeThickness = 3.2,
+                    StrokeLineJoin = PenLineJoin.Round,
+                    Points = new PointCollection
+                    {
+                        new Point(left, midY + 0.3),
+                        new Point(quarter, crackHeight * 0.22),
+                        new Point(middle, crackHeight * 0.78),
+                        new Point(threeQuarter, crackHeight * 0.18),
+                        new Point(right, crackHeight * 0.62),
+                    }
+                };
+                var seam = new Polyline
+                {
+                    Stroke = new SolidColorBrush(lavaMid),
+                    StrokeThickness = 1.25,
+                    StrokeLineJoin = PenLineJoin.Round,
+                    Points = new PointCollection(glow.Points)
+                };
+                var core = new Polyline
+                {
+                    Stroke = new SolidColorBrush(lavaCore),
+                    StrokeThickness = 0.7,
+                    StrokeLineJoin = PenLineJoin.Round,
+                    Opacity = 0.9,
+                    Points = new PointCollection(glow.Points)
+                };
+
+                crack.Children.Add(glow);
+                crack.Children.Add(seam);
+                crack.Children.Add(core);
+                AddGroundDecoration(crack, x, crackHeight, 1, 1);
+            }
+
+            for (int i = 0; i < spireCount; i++)
+            {
+                double spireWidth = NextDouble(decorationRng, 10, 18);
+                double spireHeight = NextDouble(decorationRng, 12, 24);
+                double x = NextDouble(decorationRng, 16, Math.Max(20, Width - spireWidth - 16));
+                var spire = new Canvas
+                {
+                    Width = spireWidth,
+                    Height = spireHeight,
+                    Opacity = NextDouble(decorationRng, 0.76, 0.94)
+                };
+
+                var body = new Polygon
+                {
+                    Fill = new SolidColorBrush(basaltDark),
+                    Points = new PointCollection
+                    {
+                        new Point(0, spireHeight),
+                        new Point(spireWidth * 0.18, spireHeight * 0.62),
+                        new Point(spireWidth * 0.34, spireHeight * 0.26),
+                        new Point(spireWidth * 0.58, 0),
+                        new Point(spireWidth * 0.76, spireHeight * 0.4),
+                        new Point(spireWidth, spireHeight),
+                    }
+                };
+                var face = new Polygon
+                {
+                    Fill = new SolidColorBrush(basaltMid),
+                    Points = new PointCollection
+                    {
+                        new Point(spireWidth * 0.22, spireHeight),
+                        new Point(spireWidth * 0.42, spireHeight * 0.18),
+                        new Point(spireWidth * 0.68, spireHeight * 0.46),
+                        new Point(spireWidth * 0.56, spireHeight),
+                    }
+                };
+                var seam = new Polyline
+                {
+                    Stroke = new SolidColorBrush(lavaDark),
+                    StrokeThickness = 1.5,
+                    StrokeLineJoin = PenLineJoin.Round,
+                    Points = new PointCollection
+                    {
+                        new Point(spireWidth * 0.5, spireHeight * 0.12),
+                        new Point(spireWidth * 0.44, spireHeight * 0.38),
+                        new Point(spireWidth * 0.58, spireHeight * 0.62),
+                        new Point(spireWidth * 0.46, spireHeight * 0.9),
+                    }
+                };
+                var seamGlow = new Polyline
+                {
+                    Stroke = new SolidColorBrush(Color.FromArgb(148, lavaCore.R, lavaCore.G, lavaCore.B)),
+                    StrokeThickness = 0.85,
+                    StrokeLineJoin = PenLineJoin.Round,
+                    Points = new PointCollection(seam.Points)
+                };
+                var highlight = new Polygon
+                {
+                    Fill = new SolidColorBrush(basaltLight),
+                    Opacity = 0.62,
+                    Points = new PointCollection
+                    {
+                        new Point(spireWidth * 0.52, spireHeight * 0.16),
+                        new Point(spireWidth * 0.68, spireHeight * 0.38),
+                        new Point(spireWidth * 0.58, spireHeight * 0.7),
+                        new Point(spireWidth * 0.46, spireHeight * 0.56),
+                    }
+                };
+
+                spire.Children.Add(body);
+                spire.Children.Add(face);
+                spire.Children.Add(seam);
+                spire.Children.Add(seamGlow);
+                spire.Children.Add(highlight);
+                AddGroundDecoration(spire, x, spireHeight, 2, 2);
+            }
+
+            for (int i = 0; i < emberCount; i++)
+            {
+                double emberWidth = NextDouble(decorationRng, 8, 14);
+                double emberHeight = NextDouble(decorationRng, 4, 8);
+                double x = NextDouble(decorationRng, 14, Math.Max(18, Width - emberWidth - 14));
+                var cluster = new Canvas
+                {
+                    Width = emberWidth,
+                    Height = emberHeight,
+                    Opacity = NextDouble(decorationRng, 0.76, 0.94)
+                };
+
+                for (int moteIndex = 0; moteIndex < 3; moteIndex++)
+                {
+                    double size = NextDouble(decorationRng, 2.2, 4.2);
+                    var mote = new Ellipse
+                    {
+                        Width = size,
+                        Height = size,
+                        Fill = new SolidColorBrush(moteIndex == 0 ? lavaCore : moteIndex == 1 ? lavaMid : lavaDark),
+                        Opacity = 0.82
+                    };
+                    double moteX = moteIndex == 0
+                        ? 0
+                        : moteIndex == 1
+                            ? emberWidth * 0.36
+                            : emberWidth * 0.64;
+                    double moteY = moteIndex == 1 ? 0 : emberHeight * 0.24;
+                    Canvas.SetLeft(mote, Math.Clamp(moteX, 0, Math.Max(0, emberWidth - size)));
+                    Canvas.SetTop(mote, Math.Clamp(moteY, 0, Math.Max(0, emberHeight - size)));
+                    cluster.Children.Add(mote);
+                }
+
+                AddGroundDecoration(cluster, x, emberHeight, 1, 1);
+            }
+        }
+
         // -----------------------------------------------------------------------
         // Zone visuals
         // -----------------------------------------------------------------------
@@ -4681,10 +5175,20 @@ namespace TaskbarRPG
                 hazardRiseFrames = LoadEnemyFrames("frostling_icicle", "rise");
                 hazardSinkFrames = LoadEnemyFrames("frostling_icicle", "sink");
             }
+            else if (def.Name.Equals("emberling", StringComparison.OrdinalIgnoreCase))
+            {
+                hazardRiseFrames = LoadEnemyFrames("db-5000_vent", "rise");
+                hazardSinkFrames = LoadEnemyFrames("db-5000_vent", "sink");
+            }
             else if (def.Name.Equals("Fallen Knight", StringComparison.OrdinalIgnoreCase))
             {
                 hazardRiseFrames = LoadEnemyFrames("fallen_knight_spike", "rise");
                 hazardSinkFrames = LoadEnemyFrames("fallen_knight_spike", "sink");
+            }
+            else if (def.Name.Equals("DB-5000", StringComparison.OrdinalIgnoreCase))
+            {
+                hazardRiseFrames = LoadEnemyFrames("db-5000_vent", "rise");
+                hazardSinkFrames = LoadEnemyFrames("db-5000_vent", "sink");
             }
 
             if (hazardSinkFrames.Count == 0 && hazardRiseFrames.Count > 0)
@@ -4825,7 +5329,11 @@ namespace TaskbarRPG
 
             foreach (var def in area.EnemySpawns)
             {
-                int initialDirection = def.Name.Equals("Fallen Knight", StringComparison.OrdinalIgnoreCase) ? -1 : 1;
+                int initialDirection =
+                    def.Name.Equals("Fallen Knight", StringComparison.OrdinalIgnoreCase) ||
+                    def.Name.Equals("DB-5000", StringComparison.OrdinalIgnoreCase)
+                        ? -1
+                        : 1;
                 activeEnemies.Add(CreateSpawnedEnemy(def, initialDirection));
             }
         }
@@ -4852,6 +5360,7 @@ namespace TaskbarRPG
             BitmapImage? firstFrame = enemy.HazardRiseFrames.FirstOrDefault() ?? enemy.HazardSinkFrames.FirstOrDefault();
             double spriteWidth = firstFrame?.PixelWidth > 0 ? firstFrame.PixelWidth : 28;
             double spriteHeight = firstFrame?.PixelHeight > 0 ? firstFrame.PixelHeight : 92;
+            spriteHeight = Math.Min(FrostlingIcicleMaxHeight, spriteHeight * FrostlingIcicleHeightScale);
             double floorLineY = groundY + playerHeight;
             double hazardY = floorLineY - spriteHeight;
             double enemyCenterX = enemy.X + (enemy.Definition.Width / 2.0);
@@ -4862,7 +5371,7 @@ namespace TaskbarRPG
                 .Select(index => firstOffset + (index * spacing))
                 .ToArray();
             double hitboxWidth = Math.Max(16, Math.Min(24, spriteWidth * 0.78));
-            double hitboxHeight = Math.Max(54, Math.Min(spriteHeight - 2, spriteHeight * 0.94));
+            double hitboxHeight = Math.Max(18, Math.Min(spriteHeight - 4, spriteHeight * FrostlingIcicleHitboxHeightScale));
 
             for (int index = 0; index < centerOffsets.Length; index++)
             {
@@ -5053,6 +5562,113 @@ namespace TaskbarRPG
             }
         }
 
+        private void SpawnDb5000FlamePillarHazards(SpawnedEnemy enemy)
+        {
+            if (enemy.HazardRiseFrames.Count == 0 && enemy.HazardSinkFrames.Count == 0)
+                return;
+
+            BitmapImage? firstFrame = enemy.HazardRiseFrames.FirstOrDefault() ?? enemy.HazardSinkFrames.FirstOrDefault();
+            double spriteWidth = firstFrame?.PixelWidth > 0 ? firstFrame.PixelWidth : 34;
+            double spriteHeight = firstFrame?.PixelHeight > 0 ? firstFrame.PixelHeight : 72;
+            double floorLineY = groundY + playerHeight;
+            double hazardY = floorLineY - spriteHeight;
+            double hitboxWidth = Math.Max(18, Math.Min(28, spriteWidth * 0.68));
+            double hitboxHeight = Math.Max(36, Math.Min(spriteHeight - 6, spriteHeight * 0.84));
+            int slotCount = Db5000FlamePillarSlotCount;
+            double leftMargin = 56;
+            double rightMargin = Math.Max(leftMargin + 1, Width - 60);
+            double spacing = slotCount <= 1 ? 0 : (rightMargin - leftMargin) / (slotCount - 1);
+            int safeSlotCount = rng.Next(Db5000FlamePillarMinSafeSlots, Db5000FlamePillarMaxSafeSlots + 1);
+            var safeSlots = new HashSet<int>();
+
+            while (safeSlots.Count < safeSlotCount)
+                safeSlots.Add(rng.Next(0, slotCount));
+
+            for (int slot = 0; slot < slotCount; slot++)
+            {
+                if (safeSlots.Contains(slot))
+                    continue;
+
+                FrameworkElement body;
+                Image? bodySprite = null;
+                if (firstFrame != null)
+                {
+                    bodySprite = new Image
+                    {
+                        Width = spriteWidth,
+                        Height = spriteHeight,
+                        Stretch = Stretch.Fill,
+                        Source = firstFrame
+                    };
+                    RenderOptions.SetBitmapScalingMode(bodySprite, BitmapScalingMode.NearestNeighbor);
+                    body = bodySprite;
+                }
+                else
+                {
+                    body = new Rectangle
+                    {
+                        Width = spriteWidth,
+                        Height = spriteHeight,
+                        Fill = new SolidColorBrush(Color.FromRgb(255, 116, 42)),
+                        RadiusX = 2,
+                        RadiusY = 2
+                    };
+                }
+
+                var hitbox = new Rectangle
+                {
+                    Width = hitboxWidth,
+                    Height = hitboxHeight,
+                    Fill = gameConfig.Debug ? new SolidColorBrush(Color.FromArgb(80, 255, 152, 72)) : Brushes.Transparent,
+                    Stroke = gameConfig.Debug ? Brushes.Gold : null,
+                    StrokeThickness = gameConfig.Debug ? 1 : 0,
+                    Visibility = Visibility.Hidden
+                };
+                Ellipse telegraphGlow = CreateHazardTelegraphGlow();
+                telegraphGlow.Fill = new SolidColorBrush(Color.FromArgb(150, 255, 126, 54));
+                telegraphGlow.Stroke = new SolidColorBrush(Color.FromArgb(220, 255, 214, 132));
+
+                GameCanvas.Children.Add(telegraphGlow);
+                GameCanvas.Children.Add(body);
+                GameCanvas.Children.Add(hitbox);
+                Panel.SetZIndex(telegraphGlow, 12);
+                Panel.SetZIndex(body, 18);
+                Panel.SetZIndex(hitbox, 19);
+
+                double centerX = leftMargin + (slot * spacing);
+                double hazardX = Math.Clamp(centerX - (spriteWidth / 2.0), 0, Math.Max(0, Width - spriteWidth));
+                activeEnemyHazards.Add(new SpawnedEnemyHazard
+                {
+                    Owner = enemy,
+                    Body = body,
+                    BodySprite = bodySprite,
+                    Hitbox = hitbox,
+                    TelegraphGlow = telegraphGlow,
+                    RiseFrames = enemy.HazardRiseFrames,
+                    SinkFrames = enemy.HazardSinkFrames,
+                    X = hazardX,
+                    Y = hazardY,
+                    Width = spriteWidth,
+                    Height = spriteHeight,
+                    TelegraphGlowWidth = Math.Max(34, spriteWidth * 1.52),
+                    TelegraphGlowHeight = 18,
+                    HitboxWidth = hitboxWidth,
+                    HitboxHeight = hitboxHeight,
+                    HitboxOffsetX = Math.Max(0, (spriteWidth - hitboxWidth) / 2.0),
+                    HitboxOffsetY = Math.Max(0, spriteHeight - hitboxHeight),
+                    Damage = Db5000FlamePillarDamage,
+                    DelayFrames = Db5000FlamePillarTelegraphFrames,
+                    InitialDelayFrames = Db5000FlamePillarTelegraphFrames,
+                    HoldFrames = Db5000FlamePillarHoldFrames,
+                    RiseDurationFrames = Db5000FlamePillarRiseFrames,
+                    SinkDurationFrames = Db5000FlamePillarSinkFrames,
+                    Direction = -1,
+                    Phase = EnemyHazardPhase.Delay,
+                    IsAlive = true
+                });
+            }
+        }
+
         private void SpawnEnemySnowballProjectile(SpawnedEnemy enemy, int throwIndex, double targetX)
         {
             var snowballFrames = LoadEnemyFrames("fallen_knight_snowball", "spin");
@@ -5227,6 +5843,89 @@ namespace TaskbarRPG
             });
         }
 
+        private void SpawnDb5000ShellProjectile(SpawnedEnemy enemy, int shotIndex, double targetX)
+        {
+            var shellFrames = LoadEnemyFrames("db-5000_shell", "spin");
+            BitmapImage? firstFrame = shellFrames.FirstOrDefault();
+            double size = 22 + (shotIndex * 3);
+            double spawnX = enemy.X + (enemy.Definition.Width * 0.18) + (shotIndex * 2);
+            double spawnY = enemy.Y + enemy.SpriteGroundOffsetY + (enemy.Definition.Height * 0.18);
+            double predictedPlayerCenterX = targetX +
+                Math.Clamp(velocityX * (Db5000ShellBaseTravelFrames * 0.72), -180, 180);
+            double targetCenterX = Math.Clamp(
+                predictedPlayerCenterX + GetRandomDouble(-Db5000ShellLandingSpread, Db5000ShellLandingSpread),
+                size / 2.0,
+                Math.Max(size / 2.0, Width - (size / 2.0)));
+            double targetCenterY = (groundY + playerHeight) - Math.Max(6, size * 0.34);
+            double startCenterX = spawnX + (size / 2.0);
+            double startCenterY = spawnY + (size / 2.0);
+            double deltaX = targetCenterX - startCenterX;
+            double deltaY = targetCenterY - startCenterY;
+            double travelFrames = Math.Clamp(
+                Db5000ShellBaseTravelFrames +
+                (Math.Abs(deltaX) / 26.0) +
+                (shotIndex * Db5000ShellTravelFrameStep) +
+                GetRandomDouble(-3, 5),
+                20,
+                54);
+            double gravityPerFrame = Db5000ShellGravity + (shotIndex * 0.012);
+            double horizontalVelocity = deltaX / Math.Max(1, travelFrames);
+            double verticalVelocity =
+                (deltaY - (gravityPerFrame * travelFrames * (travelFrames + 1) / 2.0)) /
+                Math.Max(1, travelFrames);
+            int damage = Math.Max(16, enemy.Definition.ContactDamage + 2 + (shotIndex * 2));
+
+            FrameworkElement body;
+            Image? bodySprite = null;
+            if (firstFrame != null)
+            {
+                bodySprite = new Image
+                {
+                    Width = size,
+                    Height = size,
+                    Stretch = Stretch.Fill,
+                    Source = firstFrame
+                };
+                RenderOptions.SetBitmapScalingMode(bodySprite, BitmapScalingMode.NearestNeighbor);
+                body = bodySprite;
+            }
+            else
+            {
+                body = new Ellipse
+                {
+                    Width = size,
+                    Height = size,
+                    Fill = new SolidColorBrush(Color.FromRgb(255, 134, 46)),
+                    Stroke = new SolidColorBrush(Color.FromRgb(255, 222, 128)),
+                    StrokeThickness = 2,
+                    Opacity = 0.95
+                };
+            }
+
+            GameCanvas.Children.Add(body);
+            Panel.SetZIndex(body, 19);
+
+            activeEnemyProjectiles.Add(new SpawnedEnemyProjectile
+            {
+                Owner = enemy,
+                Body = body,
+                BodySprite = bodySprite,
+                Frames = shellFrames,
+                X = spawnX,
+                Y = spawnY,
+                Direction = horizontalVelocity >= 0 ? 1 : -1,
+                HorizontalVelocity = horizontalVelocity,
+                VerticalVelocity = verticalVelocity,
+                GravityPerFrame = gravityPerFrame,
+                HitboxWidth = Math.Max(14, size * 0.68),
+                HitboxHeight = Math.Max(14, size * 0.68),
+                Damage = damage,
+                AnimationFrameCounter = rng.Next(0, 9999),
+                IsAlive = true,
+                DespawnWhenTopTouchesGround = true
+            });
+        }
+
         private void UpdateEnemyHazards()
         {
             foreach (var hazard in activeEnemyHazards.ToList())
@@ -5268,6 +5967,17 @@ namespace TaskbarRPG
                         if (hazard.PhaseTick >= Math.Max(1, hazard.SinkDurationFrames))
                             RemoveEnemyHazard(hazard);
                         break;
+                }
+
+                if (!hazard.IsAlive)
+                    continue;
+
+                if (hazard.Variant.Equals("db5000_rail_sweep", StringComparison.OrdinalIgnoreCase) &&
+                    hazard.Phase == EnemyHazardPhase.Hold)
+                {
+                    hazard.X += hazard.HorizontalVelocity;
+                    if (hazard.X < -hazard.Width - 8 || hazard.X > Width + 8)
+                        RemoveEnemyHazard(hazard);
                 }
             }
         }
@@ -5440,9 +6150,19 @@ namespace TaskbarRPG
                 stageTookDamage = true;
                 playerDamageCooldownFrames = PlayerDamageCooldownMax;
                 hazard.HasAppliedDamage = true;
-                string hazardMessage = IsFallenKnightHeadEnemy(hazard.Owner)
+                if (IsDb5000Enemy(hazard.Owner) &&
+                    hazard.Variant.Equals("db5000_emp_burst", StringComparison.OrdinalIgnoreCase))
+                {
+                    ApplyDb5000EmpDebuff();
+                }
+
+                string hazardMessage = IsDb5000Enemy(hazard.Owner)
+                    ? GetDb5000HazardHitMessage(hazard)
+                    : IsEmberlingEnemy(hazard.Owner)
+                        ? "Ember blast catches you!"
+                    : IsFallenKnightHeadEnemy(hazard.Owner)
                     ? "Head slam scorches you!"
-                    : IsFallenKnightEnemy(hazard.Owner)
+                        : IsFallenKnightEnemy(hazard.Owner)
                         ? "Knight spikes hit you!"
                         : "Icicle blast hits you!";
                 ShowStatus(hazardMessage, 35);
@@ -5462,12 +6182,51 @@ namespace TaskbarRPG
             };
         }
 
-        private Rect GetEnemyHazardCollisionRect(SpawnedEnemyHazard hazard)
+        private Rect GetDb5000HazardCollisionRect(SpawnedEnemyHazard hazard, double exposure)
         {
-            if (!hazard.IsAlive)
-                return new Rect(hazard.X, hazard.Y, 0, 0);
+            switch (hazard.Variant)
+            {
+                case "db5000_grid_beam":
+                case "db5000_static_arc":
+                    if (exposure < 0.3)
+                        return new Rect(hazard.X + hazard.HitboxOffsetX, hazard.Y + hazard.HitboxOffsetY, 0, 0);
 
-            double exposure = GetEnemyHazardExposure(hazard);
+                    double beamWidth = Math.Max(4, hazard.HitboxWidth * Math.Max(0.14, exposure));
+                    return new Rect(
+                        hazard.X + hazard.HitboxOffsetX + ((hazard.HitboxWidth - beamWidth) / 2.0),
+                        hazard.Y + hazard.HitboxOffsetY,
+                        beamWidth,
+                        hazard.HitboxHeight);
+
+                case "db5000_static_mine":
+                    if (exposure < 0.4 || hazard.Phase == EnemyHazardPhase.Delay)
+                        return new Rect(hazard.X + hazard.HitboxOffsetX, hazard.Y + hazard.HitboxOffsetY, 0, 0);
+
+                    double mineScale = 0.74 + (exposure * 0.26);
+                    double mineWidth = hazard.HitboxWidth * mineScale;
+                    double mineHeight = hazard.HitboxHeight * mineScale;
+                    return new Rect(
+                        hazard.X + hazard.HitboxOffsetX + ((hazard.HitboxWidth - mineWidth) / 2.0),
+                        hazard.Y + hazard.HitboxOffsetY + ((hazard.HitboxHeight - mineHeight) / 2.0),
+                        mineWidth,
+                        mineHeight);
+
+                case "db5000_magnet_pulse":
+                case "db5000_overload_burst":
+                case "db5000_emp_burst":
+                    if (exposure < 0.2)
+                        return new Rect(hazard.X + hazard.HitboxOffsetX, hazard.Y + hazard.HitboxOffsetY, 0, 0);
+
+                    double burstScale = Math.Max(0.18, 0.4 + (exposure * 0.6));
+                    double burstWidth = hazard.HitboxWidth * burstScale;
+                    double burstHeight = hazard.HitboxHeight * burstScale;
+                    return new Rect(
+                        hazard.X + hazard.HitboxOffsetX + ((hazard.HitboxWidth - burstWidth) / 2.0),
+                        hazard.Y + hazard.HitboxOffsetY + ((hazard.HitboxHeight - burstHeight) / 2.0),
+                        burstWidth,
+                        burstHeight);
+            }
+
             if (exposure < 0.35)
                 return new Rect(
                     hazard.X + hazard.HitboxOffsetX,
@@ -5479,6 +6238,79 @@ namespace TaskbarRPG
             double hitboxX = hazard.X + hazard.HitboxOffsetX;
             double hitboxY = hazard.Y + hazard.HitboxOffsetY + (hazard.HitboxHeight - exposedHeight);
             return new Rect(hitboxX, hitboxY, hazard.HitboxWidth, exposedHeight);
+        }
+
+        private Rect GetEnemyHazardCollisionRect(SpawnedEnemyHazard hazard)
+        {
+            if (!hazard.IsAlive)
+                return new Rect(hazard.X, hazard.Y, 0, 0);
+
+            double exposure = GetEnemyHazardExposure(hazard);
+            return IsDb5000Enemy(hazard.Owner)
+                ? GetDb5000HazardCollisionRect(hazard, exposure)
+                : exposure < 0.35
+                    ? new Rect(
+                        hazard.X + hazard.HitboxOffsetX,
+                        hazard.Y + hazard.HitboxOffsetY + hazard.HitboxHeight,
+                        0,
+                        0)
+                    : new Rect(
+                        hazard.X + hazard.HitboxOffsetX,
+                        hazard.Y + hazard.HitboxOffsetY + (hazard.HitboxHeight - Math.Max(4, hazard.HitboxHeight * exposure)),
+                        hazard.HitboxWidth,
+                        Math.Max(4, hazard.HitboxHeight * exposure));
+        }
+
+        private void DrawDb5000HazardShape(SpawnedEnemyHazard hazard)
+        {
+            double exposure = GetEnemyHazardExposure(hazard);
+            bool isDelaying = hazard.Phase == EnemyHazardPhase.Delay;
+            double opacity = 0;
+            double scaleX = 1.0;
+            double scaleY = Math.Max(0.06, exposure);
+            Point origin = new(0.5, 1.0);
+
+            switch (hazard.Variant)
+            {
+                case "db5000_grid_beam":
+                case "db5000_static_arc":
+                    scaleX = Math.Max(0.08, exposure);
+                    scaleY = 1.0;
+                    origin = new Point(0.5, 0.5);
+                    opacity = isDelaying ? 0.22 : Math.Clamp(0.36 + (exposure * 0.58), 0, 0.94);
+                    break;
+
+                case "db5000_static_mine":
+                    double pulse = 0.9 + (Math.Sin((animationFrameCounter * 0.28) + (hazard.X * 0.04)) * 0.08);
+                    scaleX = scaleY = pulse;
+                    origin = new Point(0.5, 0.5);
+                    opacity = isDelaying ? 0.34 : 0.88;
+                    break;
+
+                case "db5000_magnet_pulse":
+                case "db5000_overload_burst":
+                case "db5000_emp_burst":
+                    scaleX = scaleY = Math.Max(0.14, 0.42 + (exposure * 0.58));
+                    origin = new Point(0.5, 0.5);
+                    opacity = isDelaying ? 0.18 : Math.Clamp(0.24 + (exposure * 0.66), 0, 0.92);
+                    break;
+
+                case "db5000_rail_sweep":
+                    scaleX = 1.0;
+                    scaleY = 1.0;
+                    origin = new Point(0.5, 0.5);
+                    opacity = isDelaying ? 0.28 : 0.9;
+                    break;
+
+                default:
+                    opacity = isDelaying ? 0.18 : Math.Clamp(0.24 + (exposure * 0.74), 0, 0.94);
+                    break;
+            }
+
+            hazard.Body.Visibility = opacity <= 0.01 ? Visibility.Hidden : Visibility.Visible;
+            hazard.Body.Opacity = opacity;
+            hazard.Body.RenderTransformOrigin = origin;
+            hazard.Body.RenderTransform = new ScaleTransform(scaleX, scaleY);
         }
 
         private void DrawEnemyHazards()
@@ -5525,6 +6357,23 @@ namespace TaskbarRPG
 
                     if (activeFrames.Count > 0)
                         hazard.BodySprite.Source = activeFrames[Math.Clamp(frameIndex, 0, activeFrames.Count - 1)];
+
+                    if (IsDb5000Enemy(hazard.Owner))
+                    {
+                        DrawDb5000HazardShape(hazard);
+                    }
+                }
+                else if (IsDb5000Enemy(hazard.Owner))
+                {
+                    DrawDb5000HazardShape(hazard);
+                }
+                else
+                {
+                    double exposure = GetEnemyHazardExposure(hazard);
+                    hazard.Body.Visibility = exposure <= 0.01 ? Visibility.Hidden : Visibility.Visible;
+                    hazard.Body.Opacity = Math.Clamp(exposure, 0, 1);
+                    hazard.Body.RenderTransformOrigin = new Point(0.5, 1.0);
+                    hazard.Body.RenderTransform = new ScaleTransform(1.0, Math.Max(0.06, exposure));
                 }
 
                 Rect hazardRect = GetEnemyHazardCollisionRect(hazard);
@@ -5604,9 +6453,10 @@ namespace TaskbarRPG
             double pulse = 0.78 + (Math.Sin((animationFrameCounter * 0.34) + (hazard.X * 0.03)) * 0.22);
             double glowWidth = hazard.TelegraphGlowWidth * (0.62 + (phaseProgress * 0.48));
             double glowHeight = hazard.TelegraphGlowHeight * (0.68 + (phaseProgress * 0.24));
+            double glowOpacityBoost = IsDb5000Enemy(hazard.Owner) ? 1.22 : 1.0;
             hazard.TelegraphGlow.Width = glowWidth;
             hazard.TelegraphGlow.Height = glowHeight;
-            hazard.TelegraphGlow.Opacity = Math.Clamp((0.16 + (phaseProgress * 0.42)) * pulse, 0, 0.82);
+            hazard.TelegraphGlow.Opacity = Math.Clamp(((0.16 + (phaseProgress * 0.42)) * pulse) * glowOpacityBoost, 0, IsDb5000Enemy(hazard.Owner) ? 0.94 : 0.82);
             hazard.TelegraphGlow.Visibility = Visibility.Visible;
             Canvas.SetLeft(hazard.TelegraphGlow, hazard.X + ((hazard.Width - glowWidth) / 2.0));
             Canvas.SetTop(hazard.TelegraphGlow, hazard.Y + hazard.Height - (glowHeight * 0.62));
@@ -5617,6 +6467,25 @@ namespace TaskbarRPG
 
         private static bool IsFireGlobProjectile(SpawnedEnemyProjectile projectile)
             => IsFallenKnightHeadEnemy(projectile.Owner);
+
+        private static bool IsDb5000Projectile(SpawnedEnemyProjectile projectile)
+            => IsDb5000Enemy(projectile.Owner);
+
+        private static bool IsDb5000ShellProjectile(SpawnedEnemyProjectile projectile)
+            => IsDb5000Projectile(projectile) &&
+               projectile.Variant.Equals("tesla_mortar", StringComparison.OrdinalIgnoreCase);
+
+        private static bool IsDb5000ElectroMineProjectile(SpawnedEnemyProjectile projectile)
+            => IsDb5000Projectile(projectile) &&
+               projectile.Variant.Equals("electro_mine", StringComparison.OrdinalIgnoreCase);
+
+        private static bool IsDb5000ElectroBallProjectile(SpawnedEnemyProjectile projectile)
+            => IsDb5000Projectile(projectile) &&
+               projectile.Variant.Equals("electro_ball", StringComparison.OrdinalIgnoreCase);
+
+        private static bool IsDb5000OverloadOrbProjectile(SpawnedEnemyProjectile projectile)
+            => IsDb5000Projectile(projectile) &&
+               projectile.Variant.Equals("overload_orb", StringComparison.OrdinalIgnoreCase);
 
         private void SpawnVisualEffect(
             Shape body,
@@ -5711,6 +6580,34 @@ namespace TaskbarRPG
                 17);
         }
 
+        private void SpawnDb5000ShellTrailParticle(SpawnedEnemyProjectile projectile)
+        {
+            double size = GetRandomDouble(6, 10);
+            double centerX = projectile.X + (projectile.Body.Width * GetRandomDouble(0.22, 0.78));
+            double centerY = projectile.Y + (projectile.Body.Height * GetRandomDouble(0.22, 0.74));
+            var spark = new Ellipse
+            {
+                Width = size,
+                Height = size,
+                Fill = new SolidColorBrush(rng.NextDouble() < 0.45
+                    ? Color.FromArgb(196, 164, 244, 255)
+                    : Color.FromArgb(186, 110, 216, 255))
+            };
+            SpawnVisualEffect(
+                spark,
+                centerX - (size / 2.0),
+                centerY - (size / 2.0),
+                (-projectile.HorizontalVelocity * 0.06) + GetRandomDouble(-0.48, 0.48),
+                GetRandomDouble(-0.44, 0.08),
+                0.025,
+                VisualEffectTrailLifetimeFrames,
+                0.72,
+                0.0,
+                1.1,
+                0.34,
+                17);
+        }
+
         private void SpawnSnowballImpactBurst(SpawnedEnemyProjectile projectile)
         {
             double floorY = groundY + playerHeight;
@@ -5765,6 +6662,1006 @@ namespace TaskbarRPG
                     0.28,
                     16);
             }
+        }
+
+        private void SpawnDb5000ShellImpactBurst(SpawnedEnemyProjectile projectile)
+        {
+            double floorY = groundY + playerHeight;
+            double impactX = projectile.X + (projectile.Body.Width / 2.0);
+            double splashWidth = Math.Max(22, projectile.Body.Width * 1.05);
+            double splashHeight = Math.Max(10, projectile.Body.Height * 0.34);
+            var splash = new Ellipse
+            {
+                Width = splashWidth,
+                Height = splashHeight,
+                Fill = new SolidColorBrush(Color.FromArgb(178, 110, 218, 255)),
+                Stroke = new SolidColorBrush(Color.FromArgb(156, 224, 248, 255)),
+                StrokeThickness = 1
+            };
+            SpawnVisualEffect(
+                splash,
+                impactX - (splashWidth / 2.0),
+                floorY - (splashHeight * 0.72),
+                0,
+                0,
+                0,
+                12,
+                0.78,
+                0.0,
+                0.76,
+                1.55,
+                15);
+
+            int shardCount = 8;
+            for (int index = 0; index < shardCount; index++)
+            {
+                double size = GetRandomDouble(5, 10);
+                var shard = new Ellipse
+                {
+                    Width = size,
+                    Height = size,
+                    Fill = new SolidColorBrush(index % 2 == 0
+                        ? Color.FromArgb(202, 202, 246, 255)
+                        : Color.FromArgb(192, 124, 220, 255))
+                };
+                SpawnVisualEffect(
+                    shard,
+                    impactX - (size / 2.0) + GetRandomDouble(-10, 10),
+                    floorY - size - GetRandomDouble(2, 8),
+                    GetRandomDouble(-3.1, 3.1),
+                    GetRandomDouble(-3.9, -1.6),
+                    0.17,
+                    VisualEffectBurstLifetimeFrames + rng.Next(0, 5),
+                    0.88,
+                    0.0,
+                    1.0,
+                    0.24,
+                    16);
+            }
+        }
+
+        private Ellipse CreateDb5000ElectricTelegraphGlow()
+        {
+            Ellipse glow = CreateHazardTelegraphGlow();
+            glow.Fill = new SolidColorBrush(Color.FromArgb(186, 92, 222, 255));
+            glow.Stroke = new SolidColorBrush(Color.FromArgb(244, 238, 255, 255));
+            return glow;
+        }
+
+        private void SpawnDb5000SparkBurst(double centerX, double centerY, int count, double speed)
+        {
+            for (int index = 0; index < count; index++)
+            {
+                double size = GetRandomDouble(4, 8);
+                var spark = new Rectangle
+                {
+                    Width = size,
+                    Height = Math.Max(2, size * 0.42),
+                    RadiusX = 1,
+                    RadiusY = 1,
+                    Fill = new SolidColorBrush(index % 2 == 0
+                        ? Color.FromArgb(210, 224, 244, 255)
+                        : Color.FromArgb(198, 124, 220, 255))
+                };
+                double angle = GetRandomDouble(0, Math.PI * 2.0);
+                double velocity = GetRandomDouble(speed * 0.45, speed);
+                SpawnVisualEffect(
+                    spark,
+                    centerX - (size / 2.0),
+                    centerY - (spark.Height / 2.0),
+                    Math.Cos(angle) * velocity,
+                    Math.Sin(angle) * velocity,
+                    0.05,
+                    VisualEffectBurstLifetimeFrames + rng.Next(0, 5),
+                    0.82,
+                    0.0,
+                    1.0,
+                    0.24,
+                    17);
+            }
+        }
+
+        private void ApplyDb5000EmpDebuff()
+        {
+            playerEmpSlowFrames = Math.Max(playerEmpSlowFrames, Db5000EmpSlowFrames);
+            playerEmpJumpLockFrames = Math.Max(playerEmpJumpLockFrames, Db5000EmpJumpLockFrames);
+        }
+
+        private string GetDb5000HazardHitMessage(SpawnedEnemyHazard hazard)
+        {
+            return hazard.Variant switch
+            {
+                "db5000_stomp_leg" => "DB-5000's stomp crushes you!",
+                "db5000_stomp_splash" => "The stomp shockwave slams into you!",
+                "db5000_chain_lightning" => "Chain lightning fries you!",
+                "db5000_grid_beam" => "Conductor grid shocks you!",
+                "db5000_magnet_pulse" => "Magnet pulse blasts you!",
+                "db5000_rail_sweep" => "Rail sweep clips you!",
+                "db5000_static_mine" => "A static mine detonates!",
+                "db5000_static_arc" => "Static arc shocks you!",
+                "db5000_thunder_drop" => "Thunder drop catches you!",
+                "db5000_overload_burst" => "An overload orb detonates!",
+                "db5000_capacitor_wall" => "Capacitor wall shocks you!",
+                "db5000_emp_burst" => "EMP burst scrambles you!",
+                _ => "Electric discharge zaps you!"
+            };
+        }
+
+        private string GetDb5000ProjectileHitMessage(SpawnedEnemyProjectile projectile)
+        {
+            return projectile.Variant switch
+            {
+                "electro_mine" => "An electro mine cracks into you!",
+                "electro_ball" => "An electro ball shocks you!",
+                "overload_orb" => "An overload orb shocks you!",
+                _ => "Tesla mortar hits you!"
+            };
+        }
+
+        private void RemoveDb5000HazardsByVariant(SpawnedEnemy enemy, params string[] variants)
+        {
+            var variantSet = new HashSet<string>(variants, StringComparer.OrdinalIgnoreCase);
+            foreach (var hazard in activeEnemyHazards
+                .Where(h => ReferenceEquals(h.Owner, enemy) && variantSet.Contains(h.Variant))
+                .ToList())
+            {
+                RemoveEnemyHazard(hazard);
+            }
+        }
+
+        private Image CreateDb5000SpriteBody(BitmapImage firstFrame, double width, double height)
+        {
+            var bodySprite = new Image
+            {
+                Width = width,
+                Height = height,
+                Stretch = Stretch.Fill,
+                Source = firstFrame,
+                Visibility = Visibility.Hidden,
+                IsHitTestVisible = false
+            };
+            RenderOptions.SetBitmapScalingMode(bodySprite, BitmapScalingMode.NearestNeighbor);
+            return bodySprite;
+        }
+
+        private AnimatedSceneSprite CreateAnimatedSceneSprite(
+            List<BitmapImage> frames,
+            double width,
+            double height,
+            Func<FrameworkElement> fallbackFactory,
+            int zIndex,
+            int animationCadence = 6)
+        {
+            FrameworkElement body;
+            Image? bodySprite = null;
+            BitmapImage? firstFrame = frames.FirstOrDefault();
+            if (firstFrame != null)
+            {
+                bodySprite = CreateDb5000SpriteBody(firstFrame, width, height);
+                body = bodySprite;
+            }
+            else
+            {
+                body = fallbackFactory();
+                body.Visibility = Visibility.Hidden;
+                body.IsHitTestVisible = false;
+            }
+
+            GameCanvas.Children.Add(body);
+            Panel.SetZIndex(body, zIndex);
+            return new AnimatedSceneSprite
+            {
+                Body = body,
+                BodySprite = bodySprite,
+                Frames = frames,
+                Width = width,
+                Height = height,
+                AnimationCadence = Math.Max(1, animationCadence),
+                IsAlive = true
+            };
+        }
+
+        private void RemoveAnimatedSceneSprite(ref AnimatedSceneSprite? sprite)
+        {
+            if (sprite == null || !sprite.IsAlive)
+            {
+                sprite = null;
+                return;
+            }
+
+            sprite.IsAlive = false;
+            GameCanvas.Children.Remove(sprite.Body);
+            sprite = null;
+        }
+
+        private void DrawAnimatedSceneSprite(AnimatedSceneSprite? sprite)
+        {
+            if (sprite == null || !sprite.IsAlive)
+                return;
+
+            sprite.AnimationTick++;
+            sprite.Body.Width = sprite.Width;
+            sprite.Body.Height = sprite.Height;
+            sprite.Body.Visibility = Visibility.Visible;
+            sprite.Body.Opacity = Math.Clamp(sprite.Opacity, 0, 1);
+            Canvas.SetLeft(sprite.Body, sprite.X);
+            Canvas.SetTop(sprite.Body, sprite.Y);
+
+            if (sprite.BodySprite != null && sprite.Frames.Count > 0)
+            {
+                int frameIndex = (sprite.AnimationTick / Math.Max(1, sprite.AnimationCadence)) % sprite.Frames.Count;
+                sprite.BodySprite.Source = sprite.Frames[frameIndex];
+                sprite.BodySprite.RenderTransformOrigin = new Point(0.5, 0.5);
+                var transformGroup = new TransformGroup();
+                transformGroup.Children.Add(new ScaleTransform(
+                    (sprite.Direction >= 0 ? 1 : -1) * sprite.ScaleX,
+                    sprite.ScaleY));
+                if (Math.Abs(sprite.RotationDegrees) > 0.01)
+                    transformGroup.Children.Add(new RotateTransform(sprite.RotationDegrees));
+                sprite.BodySprite.RenderTransform = transformGroup;
+            }
+            else
+            {
+                sprite.Body.RenderTransformOrigin = new Point(0.5, 0.5);
+                sprite.Body.RenderTransform = new ScaleTransform(sprite.ScaleX, sprite.ScaleY);
+            }
+        }
+
+        private void SetAnimatedSceneSpriteFrames(
+            AnimatedSceneSprite? sprite,
+            List<BitmapImage> frames,
+            double width,
+            double height,
+            int animationCadence,
+            int direction = 1)
+        {
+            if (sprite == null)
+                return;
+
+            sprite.Frames = frames;
+            sprite.Width = width;
+            sprite.Height = height;
+            sprite.AnimationCadence = Math.Max(1, animationCadence);
+            sprite.AnimationTick = 0;
+            sprite.Direction = direction;
+            if (sprite.BodySprite != null && frames.Count > 0)
+                sprite.BodySprite.Source = frames[0];
+        }
+
+        private void ClearDb5000EncounterVisuals()
+        {
+            RemoveAnimatedSceneSprite(ref db5000HelicopterSprite);
+            RemoveAnimatedSceneSprite(ref db5000CargoSprite);
+        }
+
+        private void DrawDb5000EncounterVisuals()
+        {
+            DrawAnimatedSceneSprite(db5000HelicopterSprite);
+            DrawAnimatedSceneSprite(db5000CargoSprite);
+        }
+
+        private (FrameworkElement Body, List<BitmapImage> RiseFrames, List<BitmapImage> SinkFrames) CreateDb5000HazardVisual(
+            string assetName,
+            double width,
+            double height,
+            Func<FrameworkElement> fallbackFactory)
+        {
+            var riseFrames = LoadDb5000EffectFrames(assetName, "rise");
+            var sinkFrames = LoadDb5000EffectFrames(assetName, "sink");
+            BitmapImage? firstFrame = riseFrames.FirstOrDefault() ?? sinkFrames.FirstOrDefault();
+            if (firstFrame != null)
+                return (CreateDb5000SpriteBody(firstFrame, width, height), riseFrames, sinkFrames);
+
+            return (fallbackFactory(), new List<BitmapImage>(), new List<BitmapImage>());
+        }
+
+        private (FrameworkElement Body, List<BitmapImage> Frames) CreateDb5000ProjectileVisual(
+            string assetName,
+            double width,
+            double height,
+            Func<FrameworkElement> fallbackFactory)
+        {
+            var frames = LoadDb5000EffectFrames(assetName, "spin");
+            BitmapImage? firstFrame = frames.FirstOrDefault();
+            if (firstFrame != null)
+                return (CreateDb5000SpriteBody(firstFrame, width, height), frames);
+
+            return (fallbackFactory(), new List<BitmapImage>());
+        }
+
+        private SpawnedEnemyHazard SpawnDb5000Hazard(
+            SpawnedEnemy enemy,
+            string variant,
+            FrameworkElement body,
+            List<BitmapImage>? riseFrames,
+            List<BitmapImage>? sinkFrames,
+            double x,
+            double y,
+            double hitboxWidth,
+            double hitboxHeight,
+            int damage,
+            int delayFrames,
+            int holdFrames,
+            int riseDurationFrames = Db5000HazardRiseFrames,
+            int sinkDurationFrames = Db5000HazardSinkFrames,
+            double telegraphGlowWidth = double.NaN,
+            double telegraphGlowHeight = 16,
+            double hitboxOffsetX = double.NaN,
+            double hitboxOffsetY = double.NaN,
+            int zIndex = 18)
+        {
+            body.IsHitTestVisible = false;
+            body.Visibility = Visibility.Hidden;
+
+            var hitbox = new Rectangle
+            {
+                Width = hitboxWidth,
+                Height = hitboxHeight,
+                Fill = gameConfig.Debug ? new SolidColorBrush(Color.FromArgb(80, 132, 212, 255)) : Brushes.Transparent,
+                Stroke = gameConfig.Debug ? Brushes.DeepSkyBlue : null,
+                StrokeThickness = gameConfig.Debug ? 1 : 0,
+                Visibility = Visibility.Hidden
+            };
+            Ellipse telegraphGlow = CreateDb5000ElectricTelegraphGlow();
+
+            GameCanvas.Children.Add(telegraphGlow);
+            GameCanvas.Children.Add(body);
+            GameCanvas.Children.Add(hitbox);
+            Panel.SetZIndex(telegraphGlow, 12);
+            Panel.SetZIndex(body, zIndex);
+            Panel.SetZIndex(hitbox, zIndex + 1);
+
+            double resolvedGlowWidth = double.IsNaN(telegraphGlowWidth) ? Math.Max(28, body.Width * 1.35) : telegraphGlowWidth;
+            double resolvedHitboxOffsetX = double.IsNaN(hitboxOffsetX) ? Math.Max(0, (body.Width - hitboxWidth) / 2.0) : hitboxOffsetX;
+            double resolvedHitboxOffsetY = double.IsNaN(hitboxOffsetY) ? Math.Max(0, body.Height - hitboxHeight) : hitboxOffsetY;
+
+            var hazard = new SpawnedEnemyHazard
+            {
+                Owner = enemy,
+                Body = body,
+                BodySprite = body as Image,
+                Hitbox = hitbox,
+                TelegraphGlow = telegraphGlow,
+                Variant = variant,
+                X = x,
+                Y = y,
+                Width = body.Width,
+                Height = body.Height,
+                RiseFrames = riseFrames ?? new(),
+                SinkFrames = sinkFrames ?? new(),
+                TelegraphGlowWidth = resolvedGlowWidth,
+                TelegraphGlowHeight = telegraphGlowHeight,
+                HitboxWidth = hitboxWidth,
+                HitboxHeight = hitboxHeight,
+                HitboxOffsetX = resolvedHitboxOffsetX,
+                HitboxOffsetY = resolvedHitboxOffsetY,
+                Damage = damage,
+                DelayFrames = Math.Max(0, delayFrames),
+                InitialDelayFrames = Math.Max(0, delayFrames),
+                HoldFrames = Math.Max(1, holdFrames),
+                RiseDurationFrames = Math.Max(1, riseDurationFrames),
+                SinkDurationFrames = Math.Max(1, sinkDurationFrames),
+                Phase = EnemyHazardPhase.Delay,
+                IsAlive = true
+            };
+            activeEnemyHazards.Add(hazard);
+            return hazard;
+        }
+
+        private SpawnedEnemyProjectile SpawnDb5000Projectile(
+            SpawnedEnemy enemy,
+            string variant,
+            FrameworkElement body,
+            List<BitmapImage>? frames,
+            double x,
+            double y,
+            double horizontalVelocity,
+            double verticalVelocity,
+            double gravityPerFrame,
+            double hitboxWidth,
+            double hitboxHeight,
+            int damage,
+            int stateDuration = 0,
+            double targetX = double.NaN,
+            double targetY = double.NaN,
+            int zIndex = 19)
+        {
+            body.IsHitTestVisible = false;
+            GameCanvas.Children.Add(body);
+            Panel.SetZIndex(body, zIndex);
+
+            var projectile = new SpawnedEnemyProjectile
+            {
+                Owner = enemy,
+                Body = body,
+                BodySprite = body as Image,
+                Frames = frames ?? new(),
+                Variant = variant,
+                X = x,
+                Y = y,
+                Direction = horizontalVelocity >= 0 ? 1 : -1,
+                HorizontalVelocity = horizontalVelocity,
+                VerticalVelocity = verticalVelocity,
+                GravityPerFrame = gravityPerFrame,
+                HitboxWidth = hitboxWidth,
+                HitboxHeight = hitboxHeight,
+                Damage = damage,
+                AnimationFrameCounter = rng.Next(0, 9999),
+                IsAlive = true,
+                StateDuration = Math.Max(0, stateDuration),
+                TargetX = targetX,
+                TargetY = targetY
+            };
+            activeEnemyProjectiles.Add(projectile);
+            return projectile;
+        }
+
+        private void SpawnDb5000TeslaPillarHazard(SpawnedEnemy enemy, double centerX)
+        {
+            double floorLineY = groundY + playerHeight;
+            double width = 24;
+            double height = 88;
+            var (body, riseFrames, sinkFrames) = CreateDb5000HazardVisual(
+                "db-5000_tesla_pillar",
+                width,
+                height,
+                () => new Rectangle
+                {
+                    Width = width,
+                    Height = height,
+                    RadiusX = 4,
+                    RadiusY = 4,
+                    Fill = new SolidColorBrush(Color.FromArgb(188, 108, 214, 255)),
+                    Stroke = new SolidColorBrush(Color.FromArgb(232, 224, 244, 255)),
+                    StrokeThickness = 2,
+                    Opacity = 0.92
+                });
+            SpawnDb5000Hazard(
+                enemy,
+                "db5000_tesla_pillar",
+                body,
+                riseFrames,
+                sinkFrames,
+                Math.Clamp(centerX - (width / 2.0), 0, Math.Max(0, Width - width)),
+                floorLineY - height,
+                width * 0.76,
+                height * 0.88,
+                Db5000ElectricHazardDamage,
+                8,
+                10,
+                telegraphGlowWidth: width * 2.0,
+                telegraphGlowHeight: 18,
+                hitboxOffsetX: width * 0.12,
+                hitboxOffsetY: height * 0.1);
+            SpawnDb5000SparkBurst(centerX, floorLineY - 36, 7, 2.8);
+        }
+
+        private void SpawnDb5000CircularBurstHazard(
+            SpawnedEnemy enemy,
+            string variant,
+            double centerX,
+            double centerY,
+            double width,
+            double height,
+            int damage,
+            int holdFrames,
+            int delayFrames = 0)
+        {
+            string assetName = variant switch
+            {
+                "db5000_magnet_pulse" => "db-5000_magnet_pulse",
+                "db5000_overload_burst" => "db-5000_overload_burst",
+                "db5000_emp_burst" => "db-5000_emp_burst",
+                _ => "db-5000_emp_burst"
+            };
+            var (body, riseFrames, sinkFrames) = CreateDb5000HazardVisual(
+                assetName,
+                width,
+                height,
+                () => new Ellipse
+                {
+                    Width = width,
+                    Height = height,
+                    Fill = new SolidColorBrush(Color.FromArgb(150, 102, 214, 255)),
+                    Stroke = new SolidColorBrush(Color.FromArgb(230, 220, 244, 255)),
+                    StrokeThickness = 2
+                });
+            SpawnDb5000Hazard(
+                enemy,
+                variant,
+                body,
+                riseFrames,
+                sinkFrames,
+                centerX - (width / 2.0),
+                centerY - (height / 2.0),
+                width * 0.84,
+                height * 0.84,
+                damage,
+                delayFrames,
+                holdFrames,
+                telegraphGlowWidth: width * 0.78,
+                telegraphGlowHeight: Math.Max(18, height * 0.24),
+                hitboxOffsetX: width * 0.08,
+                hitboxOffsetY: height * 0.08);
+        }
+
+        private void SpawnDb5000TeslaMortars(SpawnedEnemy enemy, double playerCenterX)
+        {
+            double floorLineY = groundY + playerHeight;
+            double enemyCenterX = enemy.X + (enemy.Definition.Width / 2.0);
+            double spawnX = enemyCenterX - 10;
+            double spawnY = enemy.Y + Math.Max(10, enemy.Definition.Height * 0.14);
+
+            for (int shotIndex = 0; shotIndex < Db5000TeslaMortarVolleyCount; shotIndex++)
+            {
+                double size = 18 + (shotIndex * 3);
+                double spread = 108 + (shotIndex * 18);
+                double targetCenterX = Math.Clamp(
+                    playerCenterX + GetRandomDouble(-spread, spread),
+                    size / 2.0,
+                    Math.Max(size / 2.0, Width - (size / 2.0)));
+                double targetCenterY = floorLineY - Math.Max(6, size * 0.4);
+                double startCenterX = spawnX + (size / 2.0);
+                double startCenterY = spawnY + (size / 2.0);
+                double deltaX = targetCenterX - startCenterX;
+                double deltaY = targetCenterY - startCenterY;
+                double travelFrames = Math.Clamp(24 + (Math.Abs(deltaX) / 22.0) + (shotIndex * 3.0), 22, 56);
+                double gravityPerFrame = 0.22 + (shotIndex * 0.012);
+                double horizontalVelocity = deltaX / Math.Max(1, travelFrames);
+                double verticalVelocity =
+                    (deltaY - (gravityPerFrame * travelFrames * (travelFrames + 1) / 2.0)) /
+                    Math.Max(1, travelFrames);
+                var (body, frames) = CreateDb5000ProjectileVisual(
+                    "db-5000_tesla_mortar",
+                    size,
+                    size,
+                    () => new Ellipse
+                    {
+                        Width = size,
+                        Height = size,
+                        Fill = new SolidColorBrush(Color.FromArgb(214, 132, 220, 255)),
+                        Stroke = new SolidColorBrush(Color.FromArgb(238, 222, 246, 255)),
+                        StrokeThickness = 2
+                    });
+                var projectile = SpawnDb5000Projectile(
+                    enemy,
+                    "tesla_mortar",
+                    body,
+                    frames,
+                    spawnX + (shotIndex * 2),
+                    spawnY,
+                    horizontalVelocity,
+                    verticalVelocity,
+                    gravityPerFrame,
+                    size * 0.7,
+                    size * 0.7,
+                    Db5000TeslaMortarProjectileDamage);
+                projectile.DespawnWhenTopTouchesGround = true;
+            }
+
+            SpawnDb5000SparkBurst(enemyCenterX, spawnY + 10, 8, 2.2);
+        }
+
+        private void SpawnDb5000ChainLightning(SpawnedEnemy enemy, double playerCenterX)
+        {
+            double floorLineY = groundY + playerHeight;
+            double enemyCenterX = enemy.X + (enemy.Definition.Width / 2.0);
+            double originX = enemyCenterX + (enemy.Direction * 28);
+            double targetX = Math.Clamp(playerCenterX, 36, Math.Max(36, Width - 36));
+            int segmentCount = 4;
+
+            for (int index = 0; index < segmentCount; index++)
+            {
+                double progress = (index + 1.0) / segmentCount;
+                double centerX = originX + ((targetX - originX) * progress) + GetRandomDouble(-12, 12);
+                double width = 22;
+                double height = 96;
+                var (body, riseFrames, sinkFrames) = CreateDb5000HazardVisual(
+                    "db-5000_chain_strike",
+                    width,
+                    height,
+                    () => new Rectangle
+                    {
+                        Width = width,
+                        Height = height,
+                        RadiusX = 3,
+                        RadiusY = 3,
+                        Fill = new SolidColorBrush(Color.FromArgb(200, 124, 216, 255)),
+                        Stroke = new SolidColorBrush(Color.FromArgb(236, 226, 244, 255)),
+                        StrokeThickness = 2
+                    });
+                SpawnDb5000Hazard(
+                    enemy,
+                    "db5000_chain_lightning",
+                    body,
+                    riseFrames,
+                    sinkFrames,
+                    Math.Clamp(centerX - (width / 2.0), 0, Math.Max(0, Width - width)),
+                    floorLineY - height,
+                    width * 0.78,
+                    height * 0.9,
+                    Db5000ElectricHazardDamage,
+                    12 + (index * 8),
+                    9,
+                    telegraphGlowWidth: width * 2.1,
+                    telegraphGlowHeight: 16,
+                    hitboxOffsetX: width * 0.11,
+                    hitboxOffsetY: height * 0.08);
+            }
+        }
+
+        private void SpawnDb5000ConductorGrid(SpawnedEnemy enemy)
+        {
+            RemoveDb5000HazardsByVariant(enemy, "db5000_grid_beam");
+
+            double floorLineY = groundY + playerHeight;
+            int slotCount = 7;
+            double leftMargin = 56;
+            double rightMargin = Math.Max(leftMargin + 1, Width - 56);
+            double spacing = slotCount <= 1 ? 0 : (rightMargin - leftMargin) / (slotCount - 1);
+            int safeSlotCount = 2;
+            var safeSlots = new HashSet<int>();
+
+            while (safeSlots.Count < safeSlotCount)
+                safeSlots.Add(rng.Next(0, slotCount));
+
+            for (int slot = 0; slot < slotCount; slot++)
+            {
+                if (safeSlots.Contains(slot))
+                    continue;
+
+                double beamWidth = Math.Max(42, spacing * 0.86);
+                double beamHeight = 14;
+                double centerX = leftMargin + (slot * spacing);
+                var (body, riseFrames, sinkFrames) = CreateDb5000HazardVisual(
+                    "db-5000_grid_beam",
+                    beamWidth,
+                    beamHeight,
+                    () => new Rectangle
+                    {
+                        Width = beamWidth,
+                        Height = beamHeight,
+                        RadiusX = 6,
+                        RadiusY = 6,
+                        Fill = new SolidColorBrush(Color.FromArgb(196, 114, 210, 255)),
+                        Stroke = new SolidColorBrush(Color.FromArgb(228, 220, 242, 255)),
+                        StrokeThickness = 2
+                    });
+                SpawnDb5000Hazard(
+                    enemy,
+                    "db5000_grid_beam",
+                    body,
+                    riseFrames,
+                    sinkFrames,
+                    Math.Clamp(centerX - (beamWidth / 2.0), 0, Math.Max(0, Width - beamWidth)),
+                    floorLineY - beamHeight - 4,
+                    beamWidth * 0.94,
+                    beamHeight,
+                    Db5000GridBeamDamage,
+                    16 + ((slot % 2) * 6),
+                    12,
+                    telegraphGlowWidth: beamWidth * 0.9,
+                    telegraphGlowHeight: 12,
+                    hitboxOffsetX: beamWidth * 0.03,
+                    hitboxOffsetY: 0);
+            }
+        }
+
+        private void ApplyDb5000MagnetPull(double bossCenterX)
+        {
+            double playerCenterX = playerX + (playerWidth / 2.0);
+            double delta = bossCenterX - playerCenterX;
+            if (Math.Abs(delta) < 6)
+                return;
+
+            double pull = Math.Clamp(delta * 0.085, -3.1, 3.1);
+            playerX = Math.Clamp(playerX + pull, 0, Math.Max(0, Width - playerWidth));
+        }
+
+        private void SpawnDb5000MagnetPulse(SpawnedEnemy enemy)
+        {
+            double centerX = enemy.X + (enemy.Definition.Width / 2.0);
+            double centerY = enemy.Y + (enemy.Definition.Height * 0.55);
+            SpawnDb5000CircularBurstHazard(
+                enemy,
+                "db5000_magnet_pulse",
+                centerX,
+                centerY,
+                156,
+                104,
+                Db5000ElectricHazardDamage + 2,
+                10,
+                delayFrames: 8);
+            SpawnDb5000SparkBurst(centerX, centerY, 10, 3.0);
+        }
+
+        private void SpawnDb5000RailSweep(SpawnedEnemy enemy)
+        {
+            RemoveDb5000HazardsByVariant(enemy, "db5000_rail_sweep");
+
+            double floorLineY = groundY + playerHeight;
+            bool fromLeft = rng.NextDouble() < 0.5;
+            double width = 56;
+            double height = 108;
+            var (body, riseFrames, sinkFrames) = CreateDb5000HazardVisual(
+                "db-5000_rail_sweep",
+                width,
+                height,
+                () => new Rectangle
+                {
+                    Width = width,
+                    Height = height,
+                    RadiusX = 6,
+                    RadiusY = 6,
+                    Fill = new SolidColorBrush(Color.FromArgb(196, 118, 214, 255)),
+                    Stroke = new SolidColorBrush(Color.FromArgb(236, 228, 246, 255)),
+                    StrokeThickness = 2
+                });
+            var hazard = SpawnDb5000Hazard(
+                enemy,
+                "db5000_rail_sweep",
+                body,
+                riseFrames,
+                sinkFrames,
+                fromLeft ? 0 : Width - width,
+                floorLineY - height - 8,
+                width * 0.84,
+                height * 0.86,
+                Db5000ElectricHazardDamage + 2,
+                14,
+                80,
+                riseDurationFrames: 4,
+                sinkDurationFrames: 4,
+                telegraphGlowWidth: width * 1.4,
+                telegraphGlowHeight: 20,
+                hitboxOffsetX: width * 0.08,
+                hitboxOffsetY: height * 0.08);
+            hazard.HorizontalVelocity = fromLeft ? 7.0 : -7.0;
+        }
+
+        private void SpawnDb5000StaticMines(SpawnedEnemy enemy)
+        {
+            RemoveDb5000HazardsByVariant(enemy, "db5000_static_mine", "db5000_static_arc");
+
+            double floorLineY = groundY + playerHeight;
+            double[] mineCenters = { Width * 0.18, Width * 0.36, Width * 0.6, Width * 0.8 };
+
+            for (int index = 0; index < mineCenters.Length; index++)
+            {
+                double size = 24;
+                double centerX = Math.Clamp(mineCenters[index] + GetRandomDouble(-10, 10), 28, Math.Max(28, Width - 28));
+                var (body, riseFrames, sinkFrames) = CreateDb5000HazardVisual(
+                    "db-5000_static_mine",
+                    size,
+                    size,
+                    () => new Ellipse
+                    {
+                        Width = size,
+                        Height = size,
+                        Fill = new SolidColorBrush(Color.FromArgb(210, 126, 216, 255)),
+                        Stroke = new SolidColorBrush(Color.FromArgb(238, 228, 246, 255)),
+                        StrokeThickness = 2
+                    });
+                SpawnDb5000Hazard(
+                    enemy,
+                    "db5000_static_mine",
+                    body,
+                    riseFrames,
+                    sinkFrames,
+                    centerX - (size / 2.0),
+                    floorLineY - size,
+                    size * 0.78,
+                    size * 0.78,
+                    Db5000StaticMineDamage,
+                    16,
+                    74,
+                    telegraphGlowWidth: size * 1.65,
+                    telegraphGlowHeight: 14,
+                    hitboxOffsetX: size * 0.11,
+                    hitboxOffsetY: size * 0.11);
+                mineCenters[index] = centerX;
+            }
+
+            for (int index = 0; index < mineCenters.Length - 1; index++)
+            {
+                double leftCenter = Math.Min(mineCenters[index], mineCenters[index + 1]);
+                double rightCenter = Math.Max(mineCenters[index], mineCenters[index + 1]);
+                double beamWidth = Math.Max(24, rightCenter - leftCenter - 18);
+                double beamHeight = 16;
+                var (body, riseFrames, sinkFrames) = CreateDb5000HazardVisual(
+                    "db-5000_static_arc",
+                    beamWidth,
+                    beamHeight,
+                    () => new Rectangle
+                    {
+                        Width = beamWidth,
+                        Height = beamHeight,
+                        RadiusX = 6,
+                        RadiusY = 6,
+                        Fill = new SolidColorBrush(Color.FromArgb(188, 114, 212, 255)),
+                        Stroke = new SolidColorBrush(Color.FromArgb(224, 218, 240, 255)),
+                        StrokeThickness = 2
+                    });
+                SpawnDb5000Hazard(
+                    enemy,
+                    "db5000_static_arc",
+                    body,
+                    riseFrames,
+                    sinkFrames,
+                    leftCenter + 9,
+                    floorLineY - beamHeight - 10,
+                    beamWidth * 0.94,
+                    beamHeight,
+                    Db5000GridBeamDamage,
+                    34 + (index * 10),
+                    10,
+                    telegraphGlowWidth: beamWidth * 0.82,
+                    telegraphGlowHeight: 12,
+                    hitboxOffsetX: beamWidth * 0.03,
+                    hitboxOffsetY: 0);
+            }
+        }
+
+        private void SpawnDb5000ThunderDrop(SpawnedEnemy enemy, double playerCenterX)
+        {
+            double floorLineY = groundY + playerHeight;
+            double[] offsets = { -140, -60, 0, 60, 140 };
+
+            for (int index = 0; index < offsets.Length; index++)
+            {
+                double centerX = Math.Clamp(playerCenterX + offsets[index] + GetRandomDouble(-12, 12), 26, Math.Max(26, Width - 26));
+                double width = 24;
+                double height = 122;
+                var (body, riseFrames, sinkFrames) = CreateDb5000HazardVisual(
+                    "db-5000_thunder_drop",
+                    width,
+                    height,
+                    () => new Rectangle
+                    {
+                        Width = width,
+                        Height = height,
+                        RadiusX = 3,
+                        RadiusY = 3,
+                        Fill = new SolidColorBrush(Color.FromArgb(202, 122, 216, 255)),
+                        Stroke = new SolidColorBrush(Color.FromArgb(238, 228, 246, 255)),
+                        StrokeThickness = 2
+                    });
+                SpawnDb5000Hazard(
+                    enemy,
+                    "db5000_thunder_drop",
+                    body,
+                    riseFrames,
+                    sinkFrames,
+                    centerX - (width / 2.0),
+                    floorLineY - height,
+                    width * 0.8,
+                    height * 0.9,
+                    Db5000ElectricHazardDamage,
+                    10 + (index * 7),
+                    8,
+                    telegraphGlowWidth: width * 2.0,
+                    telegraphGlowHeight: 16,
+                    hitboxOffsetX: width * 0.1,
+                    hitboxOffsetY: height * 0.08);
+            }
+        }
+
+        private void SpawnDb5000OverloadOrbs(SpawnedEnemy enemy, double playerCenterX)
+        {
+            double enemyCenterX = enemy.X + (enemy.Definition.Width / 2.0);
+            double spawnY = enemy.Y + 18;
+            int[] laneOffsets = { -88, 0, 88 };
+
+            for (int index = 0; index < laneOffsets.Length; index++)
+            {
+                double size = 26;
+                double targetCenterX = Math.Clamp(
+                    playerCenterX + laneOffsets[index] + GetRandomDouble(-18, 18),
+                    36,
+                    Math.Max(36, Width - 36));
+                double targetCenterY = groundY + playerHeight - 86 - (Math.Abs(index - 1) * 12);
+                var (body, frames) = CreateDb5000ProjectileVisual(
+                    "db-5000_overload_orb",
+                    size,
+                    size,
+                    () => new Ellipse
+                    {
+                        Width = size,
+                        Height = size,
+                        Fill = new SolidColorBrush(Color.FromArgb(206, 138, 222, 255)),
+                        Stroke = new SolidColorBrush(Color.FromArgb(238, 228, 246, 255)),
+                        StrokeThickness = 2
+                    });
+                SpawnDb5000Projectile(
+                    enemy,
+                    "overload_orb",
+                    body,
+                    frames,
+                    enemyCenterX - (size / 2.0),
+                    spawnY + (index * 4),
+                    0,
+                    0,
+                    0,
+                    size * 0.76,
+                    size * 0.76,
+                    16,
+                    stateDuration: 58 + (index * 8),
+                    targetX: targetCenterX,
+                    targetY: targetCenterY);
+            }
+        }
+
+        private void SpawnDb5000CapacitorWalls(SpawnedEnemy enemy)
+        {
+            RemoveDb5000HazardsByVariant(enemy, "db5000_capacitor_wall");
+
+            double floorLineY = groundY + playerHeight;
+            int slotCount = 6;
+            double leftMargin = 46;
+            double rightMargin = Math.Max(leftMargin + 1, Width - 46);
+            double spacing = slotCount <= 1 ? 0 : (rightMargin - leftMargin) / (slotCount - 1);
+            var safeSlots = new HashSet<int>();
+            int safeSlotCount = rng.Next(1, 3);
+            while (safeSlots.Count < safeSlotCount)
+                safeSlots.Add(rng.Next(0, slotCount));
+
+            double wallHeight = Math.Max(120, floorLineY - 18);
+            for (int slot = 0; slot < slotCount; slot++)
+            {
+                if (safeSlots.Contains(slot))
+                    continue;
+
+                double width = 36;
+                var (body, riseFrames, sinkFrames) = CreateDb5000HazardVisual(
+                    "db-5000_capacitor_wall",
+                    width,
+                    wallHeight,
+                    () => new Rectangle
+                    {
+                        Width = width,
+                        Height = wallHeight,
+                        RadiusX = 5,
+                        RadiusY = 5,
+                        Fill = new SolidColorBrush(Color.FromArgb(180, 112, 210, 255)),
+                        Stroke = new SolidColorBrush(Color.FromArgb(232, 224, 244, 255)),
+                        StrokeThickness = 2
+                    });
+                double centerX = leftMargin + (slot * spacing);
+                SpawnDb5000Hazard(
+                    enemy,
+                    "db5000_capacitor_wall",
+                    body,
+                    riseFrames,
+                    sinkFrames,
+                    Math.Clamp(centerX - (width / 2.0), 0, Math.Max(0, Width - width)),
+                    floorLineY - wallHeight,
+                    width * 0.86,
+                    wallHeight * 0.94,
+                    Db5000ElectricHazardDamage + 2,
+                    18,
+                    14,
+                    telegraphGlowWidth: width * 1.6,
+                    telegraphGlowHeight: 18,
+                    hitboxOffsetX: width * 0.07,
+                    hitboxOffsetY: wallHeight * 0.03);
+            }
+        }
+
+        private void SpawnDb5000EmpBurst(SpawnedEnemy enemy)
+        {
+            double centerX = enemy.X + (enemy.Definition.Width / 2.0);
+            double centerY = groundY + playerHeight - 44;
+            SpawnDb5000CircularBurstHazard(
+                enemy,
+                "db5000_emp_burst",
+                centerX,
+                centerY,
+                Math.Min(Width - 60, 380),
+                118,
+                Db5000ElectricHazardDamage + 2,
+                12,
+                delayFrames: 12);
+            SpawnDb5000SparkBurst(centerX, centerY - 6, 14, 3.3);
         }
 
         private void UpdateVisualEffects()
@@ -5823,6 +7720,158 @@ namespace TaskbarRPG
                 if (!projectile.IsAlive)
                     continue;
 
+                projectile.StateTick++;
+
+                if (IsDb5000ElectroMineProjectile(projectile))
+                {
+                    double mineFloorY = groundY + playerHeight;
+                    if (projectile.StateStep == 0)
+                    {
+                        projectile.X += projectile.HorizontalVelocity;
+                        projectile.VerticalVelocity += projectile.GravityPerFrame;
+                        projectile.Y += projectile.VerticalVelocity;
+                        if (animationFrameCounter % 4 == 0)
+                            SpawnDb5000SparkBurst(
+                                projectile.X + (projectile.Body.Width / 2.0),
+                                projectile.Y + (projectile.Body.Height / 2.0),
+                                2,
+                                1.2);
+
+                        bool mineOutOfBounds = projectile.X < -projectile.Body.Width ||
+                            projectile.X > Width + projectile.Body.Width ||
+                            projectile.Y < -projectile.Body.Height ||
+                            projectile.Y > mineFloorY + projectile.Body.Height;
+                        bool landed = projectile.Y + projectile.Body.Height >= mineFloorY;
+                        if (mineOutOfBounds)
+                        {
+                            RemoveEnemyProjectile(projectile);
+                            continue;
+                        }
+
+                        if (landed)
+                        {
+                            projectile.Y = mineFloorY - projectile.Body.Height;
+                            projectile.HorizontalVelocity = 0;
+                            projectile.VerticalVelocity = 0;
+                            projectile.GravityPerFrame = 0;
+                            projectile.StateStep = 1;
+                            projectile.StateTick = 0;
+                            projectile.StateDuration = Db5000MineChargeFrames;
+                            SpawnDb5000SparkBurst(
+                                projectile.X + (projectile.Body.Width / 2.0),
+                                projectile.Y + (projectile.Body.Height * 0.45),
+                                5,
+                                1.8);
+                        }
+
+                        continue;
+                    }
+
+                    projectile.Y = mineFloorY - projectile.Body.Height;
+                    if (animationFrameCounter % 8 == 0)
+                    {
+                        SpawnDb5000SparkBurst(
+                            projectile.X + (projectile.Body.Width / 2.0),
+                            projectile.Y + (projectile.Body.Height * 0.4),
+                            2,
+                            1.0);
+                    }
+
+                    if (projectile.StateDuration > 0 && projectile.StateTick >= projectile.StateDuration)
+                    {
+                        SpawnDb5000ElectroBallBurst(projectile);
+                        RemoveEnemyProjectile(projectile);
+                    }
+
+                    continue;
+                }
+
+                if (IsDb5000ElectroBallProjectile(projectile))
+                {
+                    projectile.X += projectile.HorizontalVelocity;
+                    projectile.VerticalVelocity += projectile.GravityPerFrame;
+                    projectile.Y += projectile.VerticalVelocity;
+                    if (animationFrameCounter % 4 == 0)
+                    {
+                        SpawnDb5000SparkBurst(
+                            projectile.X + (projectile.Body.Width / 2.0),
+                            projectile.Y + (projectile.Body.Height / 2.0),
+                            2,
+                            1.1);
+                    }
+
+                    double ballFloorY = groundY + playerHeight;
+                    bool ballOutOfBounds = projectile.X < -projectile.Body.Width ||
+                        projectile.X > Width + projectile.Body.Width ||
+                        projectile.Y < -projectile.Body.Height ||
+                        projectile.Y > ballFloorY + projectile.Body.Height;
+                    bool ballHitGround = projectile.Y + projectile.Body.Height >= ballFloorY;
+                    if (!ballOutOfBounds && ballHitGround)
+                    {
+                        SpawnDb5000SparkBurst(
+                            projectile.X + (projectile.Body.Width / 2.0),
+                            ballFloorY - 6,
+                            4,
+                            1.9);
+                    }
+
+                    if (ballOutOfBounds || ballHitGround)
+                    {
+                        RemoveEnemyProjectile(projectile);
+                        continue;
+                    }
+
+                    continue;
+                }
+
+                if (IsDb5000OverloadOrbProjectile(projectile))
+                {
+                    double centerX = projectile.X + (projectile.Body.Width / 2.0);
+                    double centerY = projectile.Y + (projectile.Body.Height / 2.0);
+
+                    if (!double.IsNaN(projectile.TargetX))
+                        projectile.X += (projectile.TargetX - centerX) * 0.08;
+                    if (!double.IsNaN(projectile.TargetY))
+                        projectile.Y += (projectile.TargetY - centerY) * 0.08;
+
+                    projectile.Y += Math.Sin((projectile.StateTick * 0.18) + (projectile.X * 0.02)) * 0.12;
+
+                    if (animationFrameCounter % 4 == 0)
+                        SpawnDb5000ShellTrailParticle(projectile);
+
+                    bool orbOutOfBounds = projectile.X < -projectile.Body.Width ||
+                        projectile.X > Width + projectile.Body.Width ||
+                        projectile.Y < -projectile.Body.Height ||
+                        projectile.Y > groundY + playerHeight + projectile.Body.Height;
+
+                    if (projectile.StateDuration > 0 && projectile.StateTick >= projectile.StateDuration)
+                    {
+                        double burstCenterX = projectile.X + (projectile.Body.Width / 2.0);
+                        double burstCenterY = projectile.Y + (projectile.Body.Height / 2.0);
+                        SpawnDb5000CircularBurstHazard(
+                            projectile.Owner,
+                            "db5000_overload_burst",
+                            burstCenterX,
+                            burstCenterY,
+                            92,
+                            68,
+                            Db5000ElectricHazardDamage,
+                            8,
+                            delayFrames: 6);
+                        SpawnDb5000SparkBurst(burstCenterX, burstCenterY, 8, 2.6);
+                        RemoveEnemyProjectile(projectile);
+                        continue;
+                    }
+
+                    if (orbOutOfBounds)
+                    {
+                        RemoveEnemyProjectile(projectile);
+                        continue;
+                    }
+
+                    continue;
+                }
+
                 projectile.X += projectile.HorizontalVelocity;
                 projectile.VerticalVelocity += projectile.GravityPerFrame;
                 projectile.Y += projectile.VerticalVelocity;
@@ -5830,6 +7879,8 @@ namespace TaskbarRPG
                     SpawnSnowballTrailParticle(projectile);
                 else if (IsFireGlobProjectile(projectile) && (animationFrameCounter % 2 == 0))
                     SpawnFireGlobTrailParticle(projectile);
+                else if (IsDb5000ShellProjectile(projectile) && (animationFrameCounter % 2 == 0))
+                    SpawnDb5000ShellTrailParticle(projectile);
 
                 double floorY = groundY + playerHeight;
                 bool outOfBounds = projectile.X < -projectile.Body.Width ||
@@ -5842,6 +7893,11 @@ namespace TaskbarRPG
                 bool hitGround = groundDespawnY >= floorY;
                 if (!outOfBounds && hitGround && IsSnowballProjectile(projectile))
                     SpawnSnowballImpactBurst(projectile);
+                else if (!outOfBounds && hitGround && IsDb5000ShellProjectile(projectile))
+                {
+                    SpawnDb5000ShellImpactBurst(projectile);
+                    SpawnDb5000TeslaPillarHazard(projectile.Owner, projectile.X + (projectile.Body.Width / 2.0));
+                }
                 if (outOfBounds || hitGround)
                 {
                     RemoveEnemyProjectile(projectile);
@@ -5868,14 +7924,65 @@ namespace TaskbarRPG
                 stageTookDamage = true;
                 playerDamageCooldownFrames = PlayerDamageCooldownMax;
                 projectile.HasAppliedDamage = true;
+
+                if (IsDb5000OverloadOrbProjectile(projectile))
+                {
+                    double burstCenterX = projectile.X + (projectile.Body.Width / 2.0);
+                    double burstCenterY = projectile.Y + (projectile.Body.Height / 2.0);
+                    SpawnDb5000CircularBurstHazard(
+                        projectile.Owner,
+                        "db5000_overload_burst",
+                        burstCenterX,
+                        burstCenterY,
+                        92,
+                        68,
+                        Db5000ElectricHazardDamage,
+                        8,
+                        delayFrames: 6);
+                    SpawnDb5000SparkBurst(burstCenterX, burstCenterY, 8, 2.6);
+                }
+                else if (IsDb5000ElectroMineProjectile(projectile))
+                {
+                    SpawnDb5000ElectroBallBurst(projectile);
+                }
+
                 RemoveEnemyProjectile(projectile);
                 ShowStatus(
-                    IsFallenKnightHeadEnemy(projectile.Owner)
-                        ? "Fire glob burns you!"
+                    IsDb5000Projectile(projectile)
+                        ? GetDb5000ProjectileHitMessage(projectile)
+                        : IsFallenKnightHeadEnemy(projectile.Owner)
+                            ? "Fire glob burns you!"
                         : "Snowball hits you!",
                     35);
                 break;
             }
+        }
+
+        private void DrawDb5000ProjectileShape(SpawnedEnemyProjectile projectile)
+        {
+            if (!IsDb5000Projectile(projectile))
+                return;
+
+            double pulse = projectile.Variant switch
+            {
+                "electro_mine" when projectile.StateStep > 0 => 1.04 + (Math.Sin((projectile.StateTick * 0.34) + (projectile.X * 0.04)) * 0.18),
+                "electro_mine" => 0.96 + (Math.Sin((projectile.StateTick * 0.24) + (projectile.X * 0.03)) * 0.1),
+                "electro_ball" => 0.9 + (Math.Sin((projectile.StateTick * 0.3) + (projectile.X * 0.05)) * 0.14),
+                "overload_orb" => 1.0 + (Math.Sin((projectile.StateTick * 0.22) + (projectile.X * 0.03)) * 0.12),
+                _ => 0.94 + (Math.Sin((projectile.StateTick * 0.26) + (projectile.X * 0.04)) * 0.08)
+            };
+            double opacity = projectile.Variant switch
+            {
+                "electro_mine" when projectile.StateStep > 0 => 0.82 + (Math.Sin((projectile.StateTick * 0.22) + 0.8) * 0.12),
+                "electro_ball" => 0.84 + (Math.Sin((projectile.StateTick * 0.24) + 1.1) * 0.08),
+                "overload_orb" => 0.78 + (Math.Sin((projectile.StateTick * 0.18) + 1.2) * 0.1),
+                _ => 0.9
+            };
+
+            projectile.Body.Visibility = Visibility.Visible;
+            projectile.Body.Opacity = Math.Clamp(opacity, 0.2, 1.0);
+            projectile.Body.RenderTransformOrigin = new Point(0.5, 0.5);
+            projectile.Body.RenderTransform = new ScaleTransform(pulse, pulse);
         }
 
         private void DrawEnemyProjectiles()
@@ -5895,6 +8002,13 @@ namespace TaskbarRPG
                     projectile.BodySprite.Source = projectile.Frames[frameIndex];
                     projectile.BodySprite.RenderTransformOrigin = new Point(0.5, 0.5);
                     projectile.BodySprite.RenderTransform = new ScaleTransform(projectile.Direction >= 0 ? 1 : -1, 1);
+
+                    if (IsDb5000Projectile(projectile))
+                        DrawDb5000ProjectileShape(projectile);
+                }
+                else if (IsDb5000Projectile(projectile))
+                {
+                    DrawDb5000ProjectileShape(projectile);
                 }
             }
         }
@@ -6379,6 +8493,85 @@ namespace TaskbarRPG
             });
         }
 
+        private void SpawnEmberlingLandingSplash(SpawnedEnemy enemy)
+        {
+            BitmapImage? firstFrame = enemy.HazardRiseFrames.FirstOrDefault() ?? enemy.HazardSinkFrames.FirstOrDefault();
+            double spriteWidth = firstFrame?.PixelWidth > 0 ? firstFrame.PixelWidth : 40;
+            double spriteHeight = firstFrame?.PixelHeight > 0 ? firstFrame.PixelHeight : 84;
+            double splashX = Math.Clamp(
+                enemy.X + ((enemy.Definition.Width - spriteWidth) / 2.0),
+                0,
+                Math.Max(0, Width - spriteWidth));
+            double splashY = (groundY + playerHeight) - spriteHeight;
+
+            FrameworkElement body;
+            Image? bodySprite = null;
+            if (firstFrame != null)
+            {
+                bodySprite = new Image
+                {
+                    Width = spriteWidth,
+                    Height = spriteHeight,
+                    Stretch = Stretch.Fill,
+                    Source = firstFrame
+                };
+                RenderOptions.SetBitmapScalingMode(bodySprite, BitmapScalingMode.NearestNeighbor);
+                body = bodySprite;
+            }
+            else
+            {
+                body = new Ellipse
+                {
+                    Width = spriteWidth,
+                    Height = spriteHeight,
+                    Fill = new SolidColorBrush(Color.FromArgb(220, 255, 120, 44)),
+                    Opacity = 0.9
+                };
+            }
+
+            var hitbox = new Rectangle
+            {
+                Width = EmberlingSplashHitboxWidth,
+                Height = EmberlingSplashHitboxHeight,
+                Fill = gameConfig.Debug ? new SolidColorBrush(Color.FromArgb(80, 255, 140, 70)) : Brushes.Transparent,
+                Stroke = gameConfig.Debug ? Brushes.OrangeRed : null,
+                StrokeThickness = gameConfig.Debug ? 1 : 0,
+                Visibility = Visibility.Hidden
+            };
+
+            GameCanvas.Children.Add(body);
+            GameCanvas.Children.Add(hitbox);
+            Panel.SetZIndex(body, 18);
+            Panel.SetZIndex(hitbox, 19);
+
+            activeEnemyHazards.Add(new SpawnedEnemyHazard
+            {
+                Owner = enemy,
+                Body = body,
+                BodySprite = bodySprite,
+                Hitbox = hitbox,
+                RiseFrames = enemy.HazardRiseFrames,
+                SinkFrames = enemy.HazardSinkFrames,
+                X = splashX,
+                Y = splashY,
+                Width = spriteWidth,
+                Height = spriteHeight,
+                HitboxWidth = EmberlingSplashHitboxWidth,
+                HitboxHeight = EmberlingSplashHitboxHeight,
+                HitboxOffsetX = (spriteWidth - EmberlingSplashHitboxWidth) / 2.0,
+                HitboxOffsetY = Math.Max(0, spriteHeight - EmberlingSplashHitboxHeight),
+                Damage = Math.Max(14, enemy.Definition.ContactDamage - 1),
+                DelayFrames = 0,
+                HoldFrames = EmberlingSplashHoldFrames,
+                RiseDurationFrames = Math.Max(EmberlingSplashRiseFrames, enemy.HazardRiseFrames.Count),
+                SinkDurationFrames = Math.Max(EmberlingSplashSinkFrames, enemy.HazardSinkFrames.Count),
+                Direction = enemy.Direction,
+                Phase = EnemyHazardPhase.Rise,
+                PhaseTick = 0,
+                IsAlive = true
+            });
+        }
+
         private void HandleFallenKnightHeadLanding(SpawnedEnemy enemy, bool wasGrounded, double impactVelocity)
         {
             if (!IsFallenKnightHeadEnemy(enemy) ||
@@ -6392,6 +8585,20 @@ namespace TaskbarRPG
                 return;
 
             SpawnFallenKnightHeadLandingSplash(enemy);
+        }
+
+        private void HandleEmberlingLanding(SpawnedEnemy enemy, bool wasGrounded, double impactVelocity)
+        {
+            if (!IsEmberlingEnemy(enemy) ||
+                wasGrounded ||
+                !enemy.IsGrounded ||
+                !enemy.CurrentBehaviorId.Equals("hop_contact", StringComparison.OrdinalIgnoreCase) ||
+                enemy.IsTelegraphing ||
+                enemy.IsAttacking ||
+                impactVelocity < EmberlingSplashMinImpactSpeed)
+                return;
+
+            SpawnEmberlingLandingSplash(enemy);
         }
 
         private void UpdateFallenKnightHeadTrailHistory(SpawnedEnemy enemy)
@@ -6506,6 +8713,581 @@ namespace TaskbarRPG
             }
         }
 
+        private AnimatedSceneSprite CreateDb5000HelicopterSprite()
+        {
+            var frames = LoadEnemyFrames("db-5000_helicopter", "fly");
+            BitmapImage? firstFrame = frames.FirstOrDefault();
+            double width = firstFrame?.PixelWidth > 0 ? firstFrame.PixelWidth : 168;
+            double height = firstFrame?.PixelHeight > 0 ? firstFrame.PixelHeight : 66;
+            return CreateAnimatedSceneSprite(
+                frames,
+                width,
+                height,
+                () => new Rectangle
+                {
+                    Width = width,
+                    Height = height,
+                    RadiusX = 6,
+                    RadiusY = 6,
+                    Fill = new SolidColorBrush(Color.FromArgb(232, 94, 104, 128)),
+                    Stroke = new SolidColorBrush(Color.FromArgb(255, 228, 242, 255)),
+                    StrokeThickness = 2
+                },
+                22,
+                Db5000IntroHelicopterCadence);
+        }
+
+        private AnimatedSceneSprite CreateDb5000CargoSprite()
+        {
+            var frames = LoadEnemyFrames("db-5000_package", "idle");
+            BitmapImage? firstFrame = frames.FirstOrDefault();
+            double width = firstFrame?.PixelWidth > 0 ? firstFrame.PixelWidth : 34;
+            double height = firstFrame?.PixelHeight > 0 ? firstFrame.PixelHeight : 28;
+            return CreateAnimatedSceneSprite(
+                frames,
+                width,
+                height,
+                () => new Rectangle
+                {
+                    Width = width,
+                    Height = height,
+                    RadiusX = 4,
+                    RadiusY = 4,
+                    Fill = new SolidColorBrush(Color.FromArgb(232, 112, 128, 154)),
+                    Stroke = new SolidColorBrush(Color.FromArgb(255, 232, 244, 255)),
+                    StrokeThickness = 2
+                },
+                23,
+                Db5000IntroPackageCadence);
+        }
+
+        private void BeginDb5000Fight(SpawnedEnemy enemy)
+        {
+            playerControlLocked = false;
+            db5000EncounterPhase = Db5000EncounterPhase.Active;
+            db5000EncounterTimer = 0;
+            RemoveAnimatedSceneSprite(ref db5000CargoSprite);
+            RemoveAnimatedSceneSprite(ref db5000HelicopterSprite);
+
+            double desiredDrawX = db5000RobotTargetX;
+            enemy.Direction = -1;
+            enemy.X = Math.Clamp(
+                GetDb5000LogicalXForDrawX(enemy, desiredDrawX, enemy.Direction),
+                0,
+                Math.Max(0, Width - enemy.Definition.Width));
+            enemy.Y = groundY + playerHeight - enemy.Body.Height;
+            enemy.HideFromView = false;
+            enemy.IsInvulnerable = false;
+            enemy.SuppressContactDamage = false;
+            enemy.IsAggroLocked = true;
+            enemy.AttackCooldownFrames = 24;
+            enemy.HorizontalVelocity = 0;
+            enemy.VerticalVelocity = 0;
+            enemy.IsGrounded = true;
+            SetEnemyBehavior(enemy, Db5000ElectroMinesBehavior);
+            ShowStatus("DB-5000 stomps onto the battlefield!", 90);
+        }
+
+        private bool UpdateDb5000EncounterIntro(SpawnedEnemy enemy)
+        {
+            if (db5000EncounterPhase == Db5000EncounterPhase.Inactive ||
+                db5000EncounterPhase == Db5000EncounterPhase.Active)
+                return false;
+
+            enemy.HideFromView = true;
+            enemy.IsInvulnerable = true;
+            enemy.SuppressContactDamage = true;
+            enemy.IsAggroLocked = false;
+            enemy.AttackCooldownFrames = 0;
+            enemy.HorizontalVelocity = 0;
+            enemy.VerticalVelocity = 0;
+            enemy.IsGrounded = true;
+            enemy.Direction = -1;
+            enemy.Y = groundY + playerHeight - enemy.Body.Height;
+            if (enemy.IsTelegraphing)
+                StopEnemyTelegraph(enemy);
+            if (enemy.IsAttacking)
+                StopEnemyAttack(enemy);
+            RemoveEnemyHazardsForOwner(enemy);
+            RemoveEnemyProjectilesForOwner(enemy);
+
+            if (playerControlLocked)
+            {
+                playerX = db5000LockedPlayerX;
+                playerY = groundY;
+                velocityX = 0;
+                velocityY = 0;
+                isOnGround = true;
+            }
+
+            switch (db5000EncounterPhase)
+            {
+                case Db5000EncounterPhase.AwaitTrigger:
+                    playerControlLocked = false;
+                    double triggerX = GetDb5000PlayerLockX();
+                    if (playerX < triggerX)
+                        return true;
+
+                    CloseAllPanels();
+                    db5000LockedPlayerX = triggerX;
+                    playerX = triggerX;
+                    playerY = groundY;
+                    velocityX = 0;
+                    velocityY = 0;
+                    isOnGround = true;
+                    playerControlLocked = true;
+                    double midpoint = Width / 2.0;
+                    double playerCenterX = playerX + (playerWidth / 2.0);
+                    db5000PlayerCenterOffsetFromMidpoint = Math.Max(78, midpoint - playerCenterX);
+                    db5000HelicopterTargetCenterX = Math.Clamp(
+                        midpoint + db5000PlayerCenterOffsetFromMidpoint,
+                        midpoint + 80,
+                        Math.Max(midpoint + 80, Width - 140));
+                    db5000RobotTargetX = Math.Clamp(
+                        GetDb5000DrawXForCenter(enemy, db5000HelicopterTargetCenterX),
+                        0,
+                        Math.Max(0, Width - GetDb5000RobotSpriteWidth(enemy)));
+                    db5000HelicopterSprite ??= CreateDb5000HelicopterSprite();
+                    db5000HelicopterSprite.Direction = -1;
+                    db5000HelicopterSprite.X = Width + 20;
+                    db5000HelicopterSprite.Y = Db5000IntroHelicopterY;
+                    db5000HelicopterSprite.ScaleX = 1.0;
+                    db5000HelicopterSprite.ScaleY = 1.0;
+                    db5000EncounterPhase = Db5000EncounterPhase.HelicopterApproach;
+                    db5000EncounterTimer = 0;
+                    return true;
+
+                case Db5000EncounterPhase.HelicopterApproach:
+                    if (db5000HelicopterSprite == null)
+                        db5000HelicopterSprite = CreateDb5000HelicopterSprite();
+                    double helicopterTargetX = db5000HelicopterTargetCenterX - (db5000HelicopterSprite.Width / 2.0);
+                    db5000HelicopterSprite.Direction = -1;
+                    db5000HelicopterSprite.X = Math.Max(helicopterTargetX, db5000HelicopterSprite.X - Db5000IntroHelicopterApproachSpeed);
+                    db5000HelicopterSprite.Y = Db5000IntroHelicopterY + (Math.Sin(animationFrameCounter * 0.08) * 2.0);
+                    if (db5000HelicopterSprite.X <= helicopterTargetX + 0.01)
+                    {
+                        db5000EncounterPhase = Db5000EncounterPhase.PackageDrop;
+                        db5000EncounterTimer = 0;
+                    }
+                    return true;
+
+                case Db5000EncounterPhase.PackageDrop:
+                    if (db5000HelicopterSprite == null)
+                        db5000HelicopterSprite = CreateDb5000HelicopterSprite();
+                    db5000HelicopterSprite.Direction = -1;
+                    db5000HelicopterSprite.Y = Db5000IntroHelicopterY + (Math.Sin(animationFrameCounter * 0.08) * 2.0);
+                    if (db5000CargoSprite == null)
+                    {
+                        db5000CargoSprite = CreateDb5000CargoSprite();
+                        db5000CargoSprite.Direction = 1;
+                        db5000CargoSprite.X = db5000HelicopterSprite.X + (db5000HelicopterSprite.Width * 0.44) - (db5000CargoSprite.Width / 2.0);
+                        db5000CargoSprite.Y = db5000HelicopterSprite.Y + (db5000HelicopterSprite.Height * 0.7);
+                    }
+
+                    double cargoTargetY = (groundY + playerHeight) - db5000CargoSprite.Height;
+                    db5000CargoSprite.X = db5000HelicopterSprite.X + (db5000HelicopterSprite.Width * 0.44) - (db5000CargoSprite.Width / 2.0);
+                    db5000CargoSprite.Y = Math.Min(cargoTargetY, db5000CargoSprite.Y + Db5000IntroPackageDropSpeed);
+                    if (db5000CargoSprite.Y >= cargoTargetY - 0.01)
+                    {
+                        db5000CargoSprite.Y = cargoTargetY;
+                        db5000EncounterPhase = Db5000EncounterPhase.HelicopterDeparture;
+                        db5000EncounterTimer = 0;
+                    }
+                    return true;
+
+                case Db5000EncounterPhase.HelicopterDeparture:
+                    db5000EncounterTimer++;
+                    if (db5000HelicopterSprite != null)
+                    {
+                        db5000HelicopterSprite.Direction = 1;
+                        db5000HelicopterSprite.X += Db5000IntroHelicopterDepartureSpeed;
+                        db5000HelicopterSprite.Y = Db5000IntroHelicopterY + (Math.Sin(animationFrameCounter * 0.08) * 2.0);
+                        if (db5000HelicopterSprite.X >= Width + db5000HelicopterSprite.Width + 24)
+                            RemoveAnimatedSceneSprite(ref db5000HelicopterSprite);
+                    }
+
+                    if (db5000CargoSprite != null)
+                        db5000CargoSprite.Y = (groundY + playerHeight) - db5000CargoSprite.Height;
+
+                    if (db5000HelicopterSprite == null)
+                    {
+                        db5000EncounterPhase = Db5000EncounterPhase.PackageDormant;
+                        db5000EncounterTimer = 0;
+                    }
+                    return true;
+
+                case Db5000EncounterPhase.PackageDormant:
+                    db5000EncounterTimer++;
+                    if (db5000CargoSprite != null)
+                        db5000CargoSprite.Y = (groundY + playerHeight) - db5000CargoSprite.Height;
+                    if (db5000EncounterTimer >= Db5000IntroPackageDormantFrames)
+                    {
+                        db5000EncounterPhase = Db5000EncounterPhase.Transforming;
+                        db5000EncounterTimer = 0;
+                    }
+                    return true;
+
+                case Db5000EncounterPhase.Transforming:
+                    if (db5000CargoSprite == null)
+                        db5000CargoSprite = CreateDb5000CargoSprite();
+                    if (db5000EncounterTimer == 0)
+                    {
+                        var transformFrames = LoadEnemyFrames("db-5000_package", "transform");
+                        BitmapImage? firstTransformFrame = transformFrames.FirstOrDefault();
+                        double width = firstTransformFrame?.PixelWidth > 0 ? firstTransformFrame.PixelWidth : GetDb5000RobotSpriteWidth(enemy);
+                        double height = firstTransformFrame?.PixelHeight > 0 ? firstTransformFrame.PixelHeight : enemy.Definition.Height;
+                        SetAnimatedSceneSpriteFrames(db5000CargoSprite, transformFrames, width, height, 10, -1);
+                    }
+
+                    db5000CargoSprite.X = db5000RobotTargetX;
+                    db5000CargoSprite.Y = (groundY + playerHeight) - db5000CargoSprite.Height;
+                    db5000EncounterTimer++;
+                    int transformDuration = Math.Max(36, Math.Max(1, db5000CargoSprite.Frames.Count) * db5000CargoSprite.AnimationCadence);
+                    if (db5000EncounterTimer >= transformDuration)
+                    {
+                        db5000EncounterPhase = Db5000EncounterPhase.Pose;
+                        db5000EncounterTimer = 0;
+                    }
+                    return true;
+
+                case Db5000EncounterPhase.Pose:
+                    if (db5000CargoSprite == null)
+                        db5000CargoSprite = CreateDb5000CargoSprite();
+                    if (db5000EncounterTimer == 0)
+                    {
+                        var poseFrames = LoadEnemyFrames("db-5000", "pose");
+                        BitmapImage? firstPoseFrame = poseFrames.FirstOrDefault();
+                        double width = firstPoseFrame?.PixelWidth > 0 ? firstPoseFrame.PixelWidth : GetDb5000RobotSpriteWidth(enemy);
+                        double height = firstPoseFrame?.PixelHeight > 0 ? firstPoseFrame.PixelHeight : enemy.Definition.Height;
+                        SetAnimatedSceneSpriteFrames(db5000CargoSprite, poseFrames, width, height, 10, -1);
+                    }
+
+                    db5000CargoSprite.X = db5000RobotTargetX;
+                    db5000CargoSprite.Y = (groundY + playerHeight) - db5000CargoSprite.Height;
+                    db5000EncounterTimer++;
+                    if (db5000EncounterTimer >= Db5000IntroPoseFrames)
+                        BeginDb5000Fight(enemy);
+                    return true;
+            }
+
+            return true;
+        }
+
+        private string ChooseDb5000Behavior(SpawnedEnemy enemy, double playerCenterX)
+        {
+            if (!IsDb5000Enemy(enemy))
+                return enemy.CurrentBehaviorId;
+
+            double enemyCenterX = enemy.X + (enemy.Definition.Width / 2.0);
+            double distanceToPlayer = Math.Abs(playerCenterX - enemyCenterX);
+            if (distanceToPlayer <= Math.Max(92, enemy.Definition.Width * 0.5) ||
+                (db5000AttackPatternIndex % 3 == 2 && distanceToPlayer <= Math.Max(180, enemy.Definition.Width * 0.9)))
+                return Db5000StompBehavior;
+
+            return Db5000ElectroMinesBehavior;
+        }
+
+        private int GetDb5000TelegraphDuration(SpawnedEnemy enemy)
+        {
+            int baseDuration = enemy.CurrentBehaviorId switch
+            {
+                Db5000StompBehavior => Db5000StompTelegraphFrames,
+                Db5000ElectroMinesBehavior => Db5000ElectroMineTelegraphFrames,
+                _ => 24
+            };
+
+            return Math.Max(baseDuration, Math.Max(1, GetTelegraphFramesForCurrentBehavior(enemy).Count) * 5);
+        }
+
+        private void SpawnDb5000StompHazards(SpawnedEnemy enemy)
+        {
+            RemoveDb5000HazardsByVariant(enemy, "db5000_stomp_leg", "db5000_stomp_splash");
+
+            double floorLineY = groundY + playerHeight;
+            var (drawX, spriteWidth) = GetEnemySpriteDrawMetrics(enemy);
+            double stompCenterX = drawX + (spriteWidth * (enemy.Direction >= 0 ? 0.74 : 0.26));
+
+            double legWidth = 52;
+            double legHeight = Math.Max(116, enemy.Definition.Height * 0.72);
+            var (legBody, legRiseFrames, legSinkFrames) = CreateDb5000HazardVisual(
+                "db-5000_stomp_leg",
+                legWidth,
+                legHeight,
+                () => new Rectangle
+                {
+                    Width = legWidth,
+                    Height = legHeight,
+                    RadiusX = 4,
+                    RadiusY = 4,
+                    Fill = new SolidColorBrush(Color.FromArgb(196, 114, 216, 255)),
+                    Stroke = new SolidColorBrush(Color.FromArgb(244, 238, 255, 255)),
+                    StrokeThickness = 2
+                });
+            SpawnDb5000Hazard(
+                enemy,
+                "db5000_stomp_leg",
+                legBody,
+                legRiseFrames,
+                legSinkFrames,
+                Math.Clamp(stompCenterX - (legWidth / 2.0), 0, Math.Max(0, Width - legWidth)),
+                floorLineY - legHeight,
+                legWidth * 0.82,
+                legHeight * 0.96,
+                Db5000StompHazardDamage,
+                0,
+                8,
+                riseDurationFrames: 5,
+                sinkDurationFrames: 6,
+                hitboxOffsetX: legWidth * 0.09,
+                hitboxOffsetY: legHeight * 0.04);
+
+            double splashWidth = Math.Max(210, spriteWidth * 0.92);
+            double splashHeight = 30;
+            var (splashBody, splashRiseFrames, splashSinkFrames) = CreateDb5000HazardVisual(
+                "db-5000_stomp_splash",
+                splashWidth,
+                splashHeight,
+                () => new Ellipse
+                {
+                    Width = splashWidth,
+                    Height = splashHeight,
+                    Fill = new SolidColorBrush(Color.FromArgb(178, 112, 220, 255)),
+                    Stroke = new SolidColorBrush(Color.FromArgb(244, 238, 255, 255)),
+                    StrokeThickness = 2
+                });
+            SpawnDb5000Hazard(
+                enemy,
+                "db5000_stomp_splash",
+                splashBody,
+                splashRiseFrames,
+                splashSinkFrames,
+                Math.Clamp(stompCenterX - (splashWidth / 2.0), 0, Math.Max(0, Width - splashWidth)),
+                floorLineY - splashHeight,
+                splashWidth * 0.9,
+                splashHeight * 0.8,
+                Db5000StompHazardDamage - 2,
+                0,
+                9,
+                riseDurationFrames: 5,
+                sinkDurationFrames: 6,
+                hitboxOffsetX: splashWidth * 0.05,
+                hitboxOffsetY: splashHeight * 0.18);
+            SpawnDb5000SparkBurst(stompCenterX, floorLineY - 8, 12, 3.1);
+        }
+
+        private void SpawnDb5000ElectroMineProjectile(SpawnedEnemy enemy, int shotIndex, double playerCenterX)
+        {
+            var mineFrames = LoadDb5000EffectFrames("db-5000_electro_mine", "spin");
+            BitmapImage? firstFrame = mineFrames.FirstOrDefault();
+            var (drawX, spriteWidth) = GetEnemySpriteDrawMetrics(enemy);
+            double size = 26 + (shotIndex * 2);
+            double startX = enemy.Direction < 0
+                ? drawX + (spriteWidth * 0.22)
+                : drawX + (spriteWidth * 0.66);
+            double startY = enemy.Y + enemy.SpriteGroundOffsetY + (enemy.Definition.Height * 0.18);
+            double floorLineY = groundY + playerHeight;
+            double predictedPlayerCenterX = playerCenterX + Math.Clamp(velocityX * 16, -150, 150);
+            double targetCenterX = Math.Clamp(
+                predictedPlayerCenterX + GetRandomDouble(-110, 110) + ((shotIndex - 1) * 42),
+                size / 2.0,
+                Math.Max(size / 2.0, Width - (size / 2.0)));
+            double targetCenterY = floorLineY - Math.Max(6, size * 0.34);
+            double startCenterX = startX + (size / 2.0);
+            double startCenterY = startY + (size / 2.0);
+            double deltaX = targetCenterX - startCenterX;
+            double deltaY = targetCenterY - startCenterY;
+            double travelFrames = Math.Clamp(24 + (Math.Abs(deltaX) / 24.0) + (shotIndex * 2), 22, 56);
+            double gravityPerFrame = 0.22 + (shotIndex * 0.015);
+            double horizontalVelocity = deltaX / Math.Max(1, travelFrames);
+            double verticalVelocity =
+                (deltaY - (gravityPerFrame * travelFrames * (travelFrames + 1) / 2.0)) /
+                Math.Max(1, travelFrames);
+            var (body, frames) = CreateDb5000ProjectileVisual(
+                "db-5000_electro_mine",
+                size,
+                size,
+                () => new Ellipse
+                {
+                    Width = size,
+                    Height = size,
+                    Fill = new SolidColorBrush(Color.FromArgb(210, 122, 220, 255)),
+                    Stroke = new SolidColorBrush(Color.FromArgb(246, 240, 255, 255)),
+                    StrokeThickness = 2
+                });
+            SpawnDb5000Projectile(
+                enemy,
+                "electro_mine",
+                body,
+                frames.Count > 0 ? frames : mineFrames,
+                startX,
+                startY,
+                horizontalVelocity,
+                verticalVelocity,
+                gravityPerFrame,
+                Math.Max(16, size * 0.74),
+                Math.Max(16, size * 0.74),
+                Db5000ElectroMineProjectileDamage);
+        }
+
+        private void SpawnDb5000ElectroBallProjectile(
+            SpawnedEnemy enemy,
+            double startCenterX,
+            double startCenterY,
+            double targetCenterX,
+            int ballIndex)
+        {
+            double size = 16 + (ballIndex * 2);
+            double spawnX = startCenterX - (size / 2.0);
+            double spawnY = startCenterY - (size / 2.0);
+            double targetCenterY = (groundY + playerHeight) - Math.Max(4, size * 0.38);
+            double deltaX = targetCenterX - startCenterX;
+            double deltaY = targetCenterY - startCenterY;
+            double travelFrames = Math.Clamp(28 + (Math.Abs(deltaX) / 28.0) + ballIndex, 26, 56);
+            double gravityPerFrame = 0.24 + (ballIndex * 0.015);
+            double horizontalVelocity = deltaX / Math.Max(1, travelFrames);
+            double verticalVelocity =
+                (deltaY - (gravityPerFrame * travelFrames * (travelFrames + 1) / 2.0)) /
+                Math.Max(1, travelFrames);
+            var (body, frames) = CreateDb5000ProjectileVisual(
+                "db-5000_electro_ball",
+                size,
+                size,
+                () => new Ellipse
+                {
+                    Width = size,
+                    Height = size,
+                    Fill = new SolidColorBrush(Color.FromArgb(224, 156, 232, 255)),
+                    Stroke = new SolidColorBrush(Color.FromArgb(255, 242, 255, 255)),
+                    StrokeThickness = 2
+                });
+            SpawnDb5000Projectile(
+                enemy,
+                "electro_ball",
+                body,
+                frames,
+                spawnX,
+                spawnY,
+                horizontalVelocity,
+                verticalVelocity,
+                gravityPerFrame,
+                Math.Max(12, size * 0.66),
+                Math.Max(12, size * 0.66),
+                Db5000ElectroBallProjectileDamage);
+        }
+
+        private void SpawnDb5000ElectroBallBurst(SpawnedEnemyProjectile mine)
+        {
+            double mineCenterX = mine.X + (mine.Body.Width / 2.0);
+            double launchCenterY = mine.Y + Math.Max(6, mine.Body.Height * 0.35);
+            double playerCenterX = playerX + (playerWidth / 2.0);
+            for (int index = 0; index < 3; index++)
+            {
+                double targetCenterX = Math.Clamp(
+                    playerCenterX + GetRandomDouble(-126, 126) + ((index - 1) * 34),
+                    18,
+                    Math.Max(18, Width - 18));
+                SpawnDb5000ElectroBallProjectile(mine.Owner, mineCenterX, launchCenterY, targetCenterX, index);
+            }
+
+            SpawnDb5000SparkBurst(mineCenterX, mine.Y + (mine.Body.Height / 2.0), 8, 2.6);
+        }
+
+        private void BeginDb5000Attack(SpawnedEnemy enemy, double playerCenterX)
+        {
+            enemy.SpecialActionCounter = 0;
+            enemy.SpecialActionStep = 0;
+            enemy.AttackCooldownFrames = Db5000NewAttackCooldownFrames;
+
+            int attackDuration = enemy.CurrentBehaviorId switch
+            {
+                Db5000StompBehavior => Db5000StompAttackFrames,
+                Db5000ElectroMinesBehavior => Db5000ElectroMineAttackFrames,
+                _ => 24
+            };
+
+            if (enemy.CurrentBehaviorId.Equals(Db5000ElectroMinesBehavior, StringComparison.OrdinalIgnoreCase))
+            {
+                enemy.SpecialActionStep = 3;
+            }
+            else if (enemy.CurrentBehaviorId.Equals(Db5000StompBehavior, StringComparison.OrdinalIgnoreCase))
+            {
+                enemy.SpecialActionStep = 1;
+            }
+
+            StartEnemyAttack(enemy, Math.Max(attackDuration, Math.Max(1, GetAttackFramesForCurrentBehavior(enemy).Count) * 6));
+        }
+
+        private void UpdateDb5000Enemy(SpawnedEnemy enemy, bool hasAggro, double playerCenterX, double enemyCenterX)
+        {
+            if (UpdateDb5000EncounterIntro(enemy))
+                return;
+
+            enemy.HideFromView = false;
+            enemy.IsAggroLocked = true;
+            enemy.IsInvulnerable = false;
+            enemy.SuppressContactDamage = false;
+            enemy.Direction = playerCenterX >= enemyCenterX ? 1 : -1;
+            enemy.IsGrounded = true;
+            enemy.VerticalVelocity = 0;
+            enemy.Y = groundY + playerHeight - enemy.Body.Height;
+
+            double distanceToPlayer = Math.Abs(playerCenterX - enemyCenterX);
+            bool playerUnderRobot = distanceToPlayer <= Math.Max(92, enemy.Definition.Width * 0.5);
+
+            if (enemy.IsTelegraphing)
+            {
+                enemy.HorizontalVelocity = 0;
+                enemy.TelegraphFramesRemaining--;
+                if (enemy.TelegraphFramesRemaining <= 0)
+                {
+                    StopEnemyTelegraph(enemy);
+                    BeginDb5000Attack(enemy, playerCenterX);
+                }
+                return;
+            }
+
+            if (enemy.IsAttacking)
+            {
+                enemy.HorizontalVelocity = 0;
+                if (enemy.CurrentBehaviorId.Equals(Db5000StompBehavior, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!enemy.AttackEffectTriggered && enemy.AttackAnimationTick >= 18)
+                    {
+                        SpawnDb5000StompHazards(enemy);
+                        enemy.AttackEffectTriggered = true;
+                    }
+                }
+                else if (enemy.CurrentBehaviorId.Equals(Db5000ElectroMinesBehavior, StringComparison.OrdinalIgnoreCase))
+                {
+                    const int firstMineTick = 10;
+                    const int mineInterval = 10;
+                    while (enemy.SpecialActionCounter < enemy.SpecialActionStep &&
+                        enemy.AttackAnimationTick >= firstMineTick + (enemy.SpecialActionCounter * mineInterval))
+                    {
+                        SpawnDb5000ElectroMineProjectile(enemy, enemy.SpecialActionCounter, playerCenterX);
+                        enemy.SpecialActionCounter++;
+                    }
+                }
+                return;
+            }
+
+            if (enemy.AttackCooldownFrames <= 0)
+            {
+                string nextBehavior = ChooseDb5000Behavior(enemy, playerCenterX);
+                SetEnemyBehavior(enemy, nextBehavior);
+                StartEnemyTelegraph(enemy, GetDb5000TelegraphDuration(enemy));
+                db5000AttackPatternIndex++;
+                return;
+            }
+
+            double stoppingDistance = playerUnderRobot
+                ? Math.Max(18, enemy.Definition.Width * 0.16)
+                : Math.Max(58, enemy.Definition.Width * 0.28);
+            enemy.HorizontalVelocity = distanceToPlayer > stoppingDistance
+                ? enemy.Speed * 0.88 * enemy.Direction
+                : 0;
+        }
+
         private bool ApplyFallenKnightPhysics(SpawnedEnemy enemy)
         {
             if (IsFallenKnightEnemy(enemy))
@@ -6552,6 +9334,10 @@ namespace TaskbarRPG
                 if (IsFallenKnightEnemy(enemy))
                 {
                     UpdateFallenKnightEnemy(enemy, hasAggro, playerCenterX, enemyCenterX);
+                }
+                else if (IsDb5000Enemy(enemy))
+                {
+                    UpdateDb5000Enemy(enemy, hasAggro, playerCenterX, enemyCenterX);
                 }
                 else if (IsFallenKnightHeadEnemy(enemy))
                 {
@@ -6631,6 +9417,7 @@ namespace TaskbarRPG
                 }
 
                 HandleFallenKnightHeadLanding(enemy, wasGrounded, impactVelocity);
+                HandleEmberlingLanding(enemy, wasGrounded, impactVelocity);
                 UpdateFallenKnightHeadTrailHistory(enemy);
 
                 if (enemy.AttackCooldownFrames > 0)
@@ -7018,8 +9805,14 @@ namespace TaskbarRPG
         private static bool IsFrostlingEnemy(SpawnedEnemy enemy)
             => enemy.Definition.Name.Equals("frostling", StringComparison.OrdinalIgnoreCase);
 
+        private static bool IsEmberlingEnemy(SpawnedEnemy enemy)
+            => enemy.Definition.Name.Equals("emberling", StringComparison.OrdinalIgnoreCase);
+
         private static bool IsFallenKnightEnemy(SpawnedEnemy enemy)
             => enemy.Definition.Name.Equals("Fallen Knight", StringComparison.OrdinalIgnoreCase);
+
+        private static bool IsDb5000Enemy(SpawnedEnemy enemy)
+            => enemy.Definition.Name.Equals("DB-5000", StringComparison.OrdinalIgnoreCase);
 
         private static bool IsFallenKnightHeadEnemy(SpawnedEnemy enemy)
             => enemy.Definition.Name.Equals("Fallen Knight Head", StringComparison.OrdinalIgnoreCase);
@@ -7030,6 +9823,9 @@ namespace TaskbarRPG
         private static bool CanPlayerDamageEnemy(SpawnedEnemy enemy)
         {
             if (!enemy.IsAlive || enemy.IsDying)
+                return false;
+
+            if (enemy.HideFromView)
                 return false;
 
             if (enemy.IsInvulnerable)
@@ -7634,7 +10430,7 @@ namespace TaskbarRPG
                 return;
 
             bool isGooBoss = enemy.Definition.Name.Equals("The Goo", StringComparison.OrdinalIgnoreCase);
-            if (isGooBoss || IsFallenKnightEnemy(enemy) || IsFallenKnightHeadEnemy(enemy))
+            if (isGooBoss || IsFallenKnightEnemy(enemy) || IsDb5000Enemy(enemy) || IsFallenKnightHeadEnemy(enemy))
             {
                 return;
             }
@@ -7683,6 +10479,7 @@ namespace TaskbarRPG
             bool isSlime = enemy.Definition.Name.Equals("slime", StringComparison.OrdinalIgnoreCase);
             bool isGooBoss = enemy.Definition.Name.Equals("The Goo", StringComparison.OrdinalIgnoreCase);
             bool isFallenKnightHead = IsFallenKnightHeadEnemy(enemy);
+            bool isEmberling = IsEmberlingEnemy(enemy);
 
             if (HandleGooRecoveryState(enemy))
                 return;
@@ -7726,7 +10523,7 @@ namespace TaskbarRPG
                     else enemy.Direction = rng.NextDouble() < 0.5 ? -1 : 1;
                 }
 
-                double hopJumpMultiplier = isSlime ? 0.68 : isFallenKnightHead ? 0.88 : 1.05;
+                double hopJumpMultiplier = isSlime ? 0.68 : isFallenKnightHead ? 0.88 : isEmberling ? 0.96 : 1.05;
                 if (isGooBoss)
                 {
                     // Increase gravity + launch speed together so apex height stays about the same.
@@ -7735,33 +10532,42 @@ namespace TaskbarRPG
                 double hopSpeedBoost = hasAggro
                     ? 3.0
                     : (1.15 + (rng.NextDouble() * 0.95));
-                if (isFallenKnightHead)
+                if (isFallenKnightHead || (isEmberling && hasAggro))
                 {
                     double currentEnemyCenterX = enemy.X + (enemy.Definition.Width / 2.0);
                     double playerSideDirection = playerCenterX >= currentEnemyCenterX ? 1.0 : -1.0;
                     double targetOffsetFromPlayer = rng.NextDouble() < 0.5
-                        ? playerSideDirection * GetRandomDouble(36, FallenKnightHeadJumpLandingSpread)
-                        : -playerSideDirection * GetRandomDouble(24, FallenKnightHeadJumpLandingSpread * 0.9);
+                        ? playerSideDirection * GetRandomDouble(
+                            isEmberling ? 18 : 36,
+                            isEmberling ? EmberlingJumpLandingSpread : FallenKnightHeadJumpLandingSpread)
+                        : -playerSideDirection * GetRandomDouble(
+                            isEmberling ? 12 : 24,
+                            isEmberling
+                                ? EmberlingJumpLandingSpread * 0.78
+                                : FallenKnightHeadJumpLandingSpread * 0.9);
                     double targetX = Math.Clamp(
                         playerCenterX + targetOffsetFromPlayer - (enemy.Definition.Width / 2.0),
                         0,
                         Math.Max(0, Width - enemy.Definition.Width));
                     double deltaX = targetX - enemy.X;
-                    if (Math.Abs(deltaX) < FallenKnightHeadJumpMinDistance)
+                    double minimumJumpDistance = isEmberling
+                        ? EmberlingJumpMinDistance
+                        : FallenKnightHeadJumpMinDistance;
+                    if (Math.Abs(deltaX) < minimumJumpDistance)
                     {
                         double preferredDirection = Math.Abs(deltaX) < 0.001
                             ? (playerCenterX >= currentEnemyCenterX ? 1 : -1)
                             : Math.Sign(deltaX);
                         targetX = Math.Clamp(
-                            enemy.X + (preferredDirection * FallenKnightHeadJumpMinDistance),
+                            enemy.X + (preferredDirection * minimumJumpDistance),
                             0,
                             Math.Max(0, Width - enemy.Definition.Width));
                         deltaX = targetX - enemy.X;
-                        if (Math.Abs(deltaX) < FallenKnightHeadJumpMinDistance)
+                        if (Math.Abs(deltaX) < minimumJumpDistance)
                         {
                             preferredDirection *= -1;
                             targetX = Math.Clamp(
-                                enemy.X + (preferredDirection * FallenKnightHeadJumpMinDistance),
+                                enemy.X + (preferredDirection * minimumJumpDistance),
                                 0,
                                 Math.Max(0, Width - enemy.Definition.Width));
                             deltaX = targetX - enemy.X;
@@ -7769,19 +10575,28 @@ namespace TaskbarRPG
                     }
 
                     const double airDrag = 0.985;
+                    int minimumAirFrames = isEmberling
+                        ? EmberlingJumpMinAirFrames
+                        : FallenKnightHeadJumpMinAirFrames;
+                    int maximumAirFrames = isEmberling
+                        ? EmberlingJumpMaxAirFrames
+                        : FallenKnightHeadJumpMaxAirFrames;
+                    double maximumJumpSpeed = isEmberling
+                        ? EmberlingTargetedJumpMaxSpeed
+                        : FallenKnightHeadTargetedJumpMaxSpeed;
                     int airFrames = Math.Clamp(
-                        FallenKnightHeadJumpMinAirFrames +
+                        minimumAirFrames +
                         (int)Math.Round(Math.Abs(deltaX) / 13.0) +
                         rng.Next(-2, 4),
-                        FallenKnightHeadJumpMinAirFrames,
-                        FallenKnightHeadJumpMaxAirFrames);
+                        minimumAirFrames,
+                        maximumAirFrames);
 
-                    for (int frames = airFrames; frames <= FallenKnightHeadJumpMaxAirFrames; frames++)
+                    for (int frames = airFrames; frames <= maximumAirFrames; frames++)
                     {
                         double horizontalTravelFactor = (1.0 - Math.Pow(airDrag, frames)) / (1.0 - airDrag);
                         double requiredSpeed = Math.Abs(deltaX) / Math.Max(0.001, horizontalTravelFactor);
                         airFrames = frames;
-                        if (requiredSpeed <= FallenKnightHeadTargetedJumpMaxSpeed)
+                        if (requiredSpeed <= maximumJumpSpeed)
                             break;
                     }
 
@@ -7791,10 +10606,11 @@ namespace TaskbarRPG
                         ? 0
                         : Math.Clamp(
                             deltaX / horizontalTravel,
-                            -FallenKnightHeadTargetedJumpMaxSpeed,
-                            FallenKnightHeadTargetedJumpMaxSpeed);
+                            -maximumJumpSpeed,
+                            maximumJumpSpeed);
                     enemy.VerticalVelocity = -(gameConfig.Gravity * (airFrames + 1) / 2.0);
-                    enemy.SpecialActionCounter++;
+                    if (isFallenKnightHead)
+                        enemy.SpecialActionCounter++;
                 }
                 else
                 {
@@ -7812,6 +10628,8 @@ namespace TaskbarRPG
                     hopIntervalFrames = (int)Math.Round(hopIntervalFrames / 1.4);
                 if (isFallenKnightHead)
                     hopIntervalFrames = hasAggro ? 10 : 14;
+                if (isEmberling)
+                    hopIntervalFrames = hasAggro ? 12 : 18;
                 if (isGooBoss)
                 {
                     hopIntervalFrames = (int)Math.Round(hopIntervalFrames * 0.66);
@@ -8166,6 +10984,15 @@ namespace TaskbarRPG
             foreach (var enemy in activeEnemies)
             {
                 if (!enemy.IsAlive) continue;
+                if (enemy.HideFromView)
+                {
+                    enemy.Body.Visibility = Visibility.Hidden;
+                    enemy.Label.Visibility = Visibility.Hidden;
+                    enemy.HealthBg.Visibility = Visibility.Hidden;
+                    enemy.HealthFill.Visibility = Visibility.Hidden;
+                    enemy.AttackHitbox.Visibility = Visibility.Hidden;
+                    continue;
+                }
 
                 var (drawX, spriteWidth) = GetEnemySpriteDrawMetrics(enemy);
 
@@ -8958,6 +11785,9 @@ namespace TaskbarRPG
 
         private Rect GetEnemyCollisionRect(SpawnedEnemy enemy)
         {
+            if (enemy.HideFromView)
+                return new Rect(enemy.X, enemy.Y, 0, 0);
+
             if (IsEnemyCollisionDisabled(enemy))
                 return new Rect(enemy.X, enemy.Y, 0, 0);
 
@@ -8987,9 +11817,25 @@ namespace TaskbarRPG
 
             if (IsFrostlingEnemy(enemy) && enemy.IsRecovering)
             {
+                if (enemy.BodySprite?.Source is BitmapSource currentFrame)
+                {
+                    Int32Rect opaqueBounds = GetSpriteOpaqueBounds(currentFrame);
+                    double scaleX = spriteWidth / Math.Max(1, currentFrame.PixelWidth);
+                    double scaleY = enemy.Definition.Height / Math.Max(1, currentFrame.PixelHeight);
+                    double visibleWidth = Math.Max(12, opaqueBounds.Width * scaleX);
+                    double visibleHeight = Math.Max(12, opaqueBounds.Height * scaleY);
+                    double insetX = Math.Min(visibleWidth * 0.12, 5);
+                    double insetY = Math.Min(visibleHeight * 0.12, 5);
+                    double visibleSnowballX = drawX + (opaqueBounds.X * scaleX) + insetX;
+                    double visibleSnowballY = bodyTop + (opaqueBounds.Y * scaleY) + insetY;
+                    double snowballWidth = Math.Max(12, visibleWidth - (insetX * 2.0));
+                    double snowballHeight = Math.Max(12, visibleHeight - (insetY * 2.0));
+                    return new Rect(visibleSnowballX, visibleSnowballY, snowballWidth, snowballHeight);
+                }
+
                 double snowballSize = Math.Max(34, Math.Min(spriteWidth * 0.66, enemy.Definition.Height * 0.44));
                 double snowballX = drawX + ((spriteWidth - snowballSize) / 2.0);
-                double snowballY = enemy.Y + enemy.SpriteGroundOffsetY + GetFrostlingSnowballBodyOffsetY(enemy) + Math.Max(10, enemy.Definition.Height * 0.12);
+                double snowballY = bodyTop + Math.Max(10, enemy.Definition.Height * 0.12);
                 return new Rect(snowballX, snowballY, snowballSize, snowballSize);
             }
 
@@ -9044,6 +11890,55 @@ namespace TaskbarRPG
             }
 
             return (drawX, spriteWidth);
+        }
+
+        private Int32Rect GetSpriteOpaqueBounds(BitmapSource frame)
+        {
+            if (spriteOpaqueBoundsCache.TryGetValue(frame, out var cachedBounds))
+                return cachedBounds;
+
+            BitmapSource source = frame;
+            if (source.Format != PixelFormats.Bgra32 && source.Format != PixelFormats.Pbgra32)
+            {
+                var converted = new FormatConvertedBitmap(source, PixelFormats.Bgra32, null, 0);
+                if (converted.CanFreeze)
+                    converted.Freeze();
+                source = converted;
+            }
+
+            int pixelWidth = Math.Max(1, source.PixelWidth);
+            int pixelHeight = Math.Max(1, source.PixelHeight);
+            int bytesPerPixel = Math.Max(1, (source.Format.BitsPerPixel + 7) / 8);
+            int stride = Math.Max(1, pixelWidth * bytesPerPixel);
+            byte[] pixels = new byte[stride * pixelHeight];
+            source.CopyPixels(pixels, stride, 0);
+
+            int minX = pixelWidth;
+            int minY = pixelHeight;
+            int maxX = -1;
+            int maxY = -1;
+
+            for (int y = 0; y < pixelHeight; y++)
+            {
+                int rowStart = y * stride;
+                for (int x = 0; x < pixelWidth; x++)
+                {
+                    int alphaIndex = rowStart + (x * bytesPerPixel) + Math.Min(3, bytesPerPixel - 1);
+                    if (pixels[alphaIndex] == 0)
+                        continue;
+
+                    if (x < minX) minX = x;
+                    if (y < minY) minY = y;
+                    if (x > maxX) maxX = x;
+                    if (y > maxY) maxY = y;
+                }
+            }
+
+            Int32Rect bounds = maxX >= minX && maxY >= minY
+                ? new Int32Rect(minX, minY, (maxX - minX) + 1, (maxY - minY) + 1)
+                : new Int32Rect(0, 0, pixelWidth, pixelHeight);
+            spriteOpaqueBoundsCache[frame] = bounds;
+            return bounds;
         }
 
         // -----------------------------------------------------------------------
