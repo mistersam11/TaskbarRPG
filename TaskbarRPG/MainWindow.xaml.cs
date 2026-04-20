@@ -1856,7 +1856,7 @@ namespace TaskbarRPG
         private double db5000HelicopterTargetCenterX = 0;
         private double db5000RobotTargetX = 0;
         private int db5000EncounterTimer = 0;
-        private int db5000AttackPatternIndex = 0;
+        private int db5000RangedAttacksSinceStomp = 0;
 
         private bool isAttacking = false;
         private bool isDownAttack = false;
@@ -2008,6 +2008,7 @@ namespace TaskbarRPG
         private const double Db5000EmpMoveSpeedMultiplier = 0.62;
         private const string Db5000StompBehavior = "stomp";
         private const string Db5000ElectroMinesBehavior = "electro_mines";
+        private const string Db5000VentHopSlamBehavior = "vent_hop_slam";
         private const int Db5000IntroHelicopterCadence = 6;
         private const int Db5000IntroPackageCadence = 10;
         private const double Db5000IntroStageOffset = 210;
@@ -2021,11 +2022,23 @@ namespace TaskbarRPG
         private const int Db5000StompAttackFrames = 46;
         private const int Db5000ElectroMineTelegraphFrames = 38;
         private const int Db5000ElectroMineAttackFrames = 48;
+        private const int Db5000VentHopTelegraphFrames = 30;
+        private const int Db5000VentHopAttackFrames = 190;
         private const int Db5000NewAttackCooldownFrames = 54;
         private const int Db5000StompHazardDamage = 24;
         private const int Db5000ElectroMineProjectileDamage = 18;
         private const int Db5000ElectroBallProjectileDamage = 14;
         private const int Db5000MineChargeFrames = 62;
+        private const double Db5000VentHopLaunchVelocity = -5.4;
+        private const double Db5000VentHopGravityMultiplier = 0.09;
+        private const int Db5000VentHopLandingRecoveryFrames = 12;
+        private const double Db5000VentHopWallBuffer = 54;
+        private const double Db5000VentHopTriggerDistance = 158;
+        private const double Db5000VentHopRangedChoiceChance = 0.5;
+        private const int Db5000ForcedRangedChaseFrames = 180;
+        private const double Db5000RangedChoiceBaseChance = 0.42;
+        private const double Db5000RangedChoiceDecayPerUse = 0.12;
+        private const double Db5000RangedChoiceFloor = 0.18;
         private const double EnemyProjectileDefaultHitboxScale = 0.64;
         private const int VisualEffectTrailLifetimeFrames = 14;
         private const int VisualEffectBurstLifetimeFrames = 20;
@@ -4265,7 +4278,7 @@ namespace TaskbarRPG
             db5000HelicopterTargetCenterX = 0;
             db5000RobotTargetX = 0;
             db5000EncounterTimer = 0;
-            db5000AttackPatternIndex = 0;
+            db5000RangedAttacksSinceStomp = 0;
             ClearDb5000EncounterVisuals();
         }
 
@@ -4275,7 +4288,7 @@ namespace TaskbarRPG
                 return;
 
             db5000EncounterPhase = Db5000EncounterPhase.AwaitTrigger;
-            db5000AttackPatternIndex = 0;
+            db5000RangedAttacksSinceStomp = 0;
             db5000EncounterTimer = 0;
         }
 
@@ -8766,6 +8779,7 @@ namespace TaskbarRPG
             playerControlLocked = false;
             db5000EncounterPhase = Db5000EncounterPhase.Active;
             db5000EncounterTimer = 0;
+            db5000RangedAttacksSinceStomp = 0;
             RemoveAnimatedSceneSprite(ref db5000CargoSprite);
             RemoveAnimatedSceneSprite(ref db5000HelicopterSprite);
 
@@ -8781,6 +8795,7 @@ namespace TaskbarRPG
             enemy.SuppressContactDamage = false;
             enemy.IsAggroLocked = true;
             enemy.AttackCooldownFrames = 24;
+            enemy.BehaviorTimerFrames = 0;
             enemy.HorizontalVelocity = 0;
             enemy.VerticalVelocity = 0;
             enemy.IsGrounded = true;
@@ -8799,6 +8814,7 @@ namespace TaskbarRPG
             enemy.SuppressContactDamage = true;
             enemy.IsAggroLocked = false;
             enemy.AttackCooldownFrames = 0;
+            enemy.BehaviorTimerFrames = 0;
             enemy.HorizontalVelocity = 0;
             enemy.VerticalVelocity = 0;
             enemy.IsGrounded = true;
@@ -8973,18 +8989,97 @@ namespace TaskbarRPG
             return true;
         }
 
-        private string ChooseDb5000Behavior(SpawnedEnemy enemy, double playerCenterX)
-        {
-            if (!IsDb5000Enemy(enemy))
-                return enemy.CurrentBehaviorId;
+        private double GetDb5000StompRange(SpawnedEnemy enemy)
+            => Math.Max(92, enemy.Definition.Width * 0.5);
 
-            double enemyCenterX = enemy.X + (enemy.Definition.Width / 2.0);
-            double distanceToPlayer = Math.Abs(playerCenterX - enemyCenterX);
-            if (distanceToPlayer <= Math.Max(92, enemy.Definition.Width * 0.5) ||
-                (db5000AttackPatternIndex % 3 == 2 && distanceToPlayer <= Math.Max(180, enemy.Definition.Width * 0.9)))
-                return Db5000StompBehavior;
+        private double GetDb5000RangedChoiceChance()
+        {
+            return Math.Max(
+                Db5000RangedChoiceFloor,
+                Db5000RangedChoiceBaseChance - (db5000RangedAttacksSinceStomp * Db5000RangedChoiceDecayPerUse));
+        }
+
+        private bool ShouldDb5000ChooseRangedAttack()
+            => rng.NextDouble() < GetDb5000RangedChoiceChance();
+
+        private bool ShouldDb5000UseVentHopSlam(SpawnedEnemy enemy, double playerCenterX, double enemyCenterX, double distanceToPlayer)
+        {
+            if (distanceToPlayer > Math.Max(Db5000VentHopTriggerDistance, enemy.Definition.Width * 0.92))
+                return false;
+
+            double bodyBuffer = Math.Max(28, enemy.Definition.Width * 0.16);
+            bool playerNearLeftWall = playerX <= Db5000VentHopWallBuffer;
+            bool playerNearRightWall = playerX >= Width - playerWidth - Db5000VentHopWallBuffer;
+            bool bossBlockingLeftEscape = playerNearLeftWall && enemyCenterX > playerCenterX + bodyBuffer;
+            bool bossBlockingRightEscape = playerNearRightWall && enemyCenterX < playerCenterX - bodyBuffer;
+            return bossBlockingLeftEscape || bossBlockingRightEscape;
+        }
+
+        private string ChooseDb5000RangedBehavior(bool preferVentHop)
+        {
+            if (preferVentHop || rng.NextDouble() < Db5000VentHopRangedChoiceChance)
+                return Db5000VentHopSlamBehavior;
 
             return Db5000ElectroMinesBehavior;
+        }
+
+        private void SpawnDb5000VentBurstVisual(SpawnedEnemy enemy, double scale = 1.0)
+        {
+            double floorLineY = groundY + playerHeight;
+            var (drawX, spriteWidth) = GetEnemySpriteDrawMetrics(enemy);
+            double ventWidth = Math.Max(28, 38 * scale);
+            double ventHeight = Math.Max(58, 82 * scale);
+            double[] ventFractions = { 0.34, 0.66 };
+
+            foreach (double fraction in ventFractions)
+            {
+                double ventCenterX = drawX + (spriteWidth * fraction);
+                var (body, riseFrames, sinkFrames) = CreateDb5000HazardVisual(
+                    "db-5000_vent",
+                    ventWidth,
+                    ventHeight,
+                    () => new Rectangle
+                    {
+                        Width = ventWidth,
+                        Height = ventHeight,
+                        RadiusX = 4,
+                        RadiusY = 4,
+                        Fill = new SolidColorBrush(Color.FromArgb(174, 112, 220, 255)),
+                        Stroke = new SolidColorBrush(Color.FromArgb(232, 226, 246, 255)),
+                        StrokeThickness = 1.5
+                    });
+
+                SpawnDb5000Hazard(
+                    enemy,
+                    "db5000_vent_burst",
+                    body,
+                    riseFrames,
+                    sinkFrames,
+                    Math.Clamp(ventCenterX - (ventWidth / 2.0), 0, Math.Max(0, Width - ventWidth)),
+                    floorLineY - ventHeight + 4,
+                    0,
+                    0,
+                    0,
+                    0,
+                    6,
+                    riseDurationFrames: 4,
+                    sinkDurationFrames: 5,
+                    telegraphGlowWidth: 0,
+                    telegraphGlowHeight: 0,
+                    zIndex: 11);
+            }
+        }
+
+        private void StartDb5000TelegraphedBehavior(SpawnedEnemy enemy, string behaviorId)
+        {
+            enemy.BehaviorTimerFrames = 0;
+            SetEnemyBehavior(enemy, behaviorId);
+            if (behaviorId.Equals(Db5000VentHopSlamBehavior, StringComparison.OrdinalIgnoreCase))
+            {
+                enemy.SuppressContactDamage = true;
+                SpawnDb5000VentBurstVisual(enemy, 0.82);
+            }
+            StartEnemyTelegraph(enemy, GetDb5000TelegraphDuration(enemy));
         }
 
         private int GetDb5000TelegraphDuration(SpawnedEnemy enemy)
@@ -8993,6 +9088,7 @@ namespace TaskbarRPG
             {
                 Db5000StompBehavior => Db5000StompTelegraphFrames,
                 Db5000ElectroMinesBehavior => Db5000ElectroMineTelegraphFrames,
+                Db5000VentHopSlamBehavior => Db5000VentHopTelegraphFrames,
                 _ => 24
             };
 
@@ -9041,7 +9137,7 @@ namespace TaskbarRPG
                 hitboxOffsetX: legWidth * 0.09,
                 hitboxOffsetY: legHeight * 0.04);
 
-            double splashWidth = Math.Max(210, spriteWidth * 0.92);
+            double splashWidth = Math.Max(280, spriteWidth * 1.18);
             double splashHeight = 30;
             var (splashBody, splashRiseFrames, splashSinkFrames) = CreateDb5000HazardVisual(
                 "db-5000_stomp_splash",
@@ -9063,14 +9159,14 @@ namespace TaskbarRPG
                 splashSinkFrames,
                 Math.Clamp(stompCenterX - (splashWidth / 2.0), 0, Math.Max(0, Width - splashWidth)),
                 floorLineY - splashHeight,
-                splashWidth * 0.9,
+                splashWidth * 0.94,
                 splashHeight * 0.8,
                 Db5000StompHazardDamage - 2,
                 0,
                 9,
                 riseDurationFrames: 5,
                 sinkDurationFrames: 6,
-                hitboxOffsetX: splashWidth * 0.05,
+                hitboxOffsetX: splashWidth * 0.03,
                 hitboxOffsetY: splashHeight * 0.18);
             SpawnDb5000SparkBurst(stompCenterX, floorLineY - 8, 12, 3.1);
         }
@@ -9179,11 +9275,10 @@ namespace TaskbarRPG
         {
             double mineCenterX = mine.X + (mine.Body.Width / 2.0);
             double launchCenterY = mine.Y + Math.Max(6, mine.Body.Height * 0.35);
-            double playerCenterX = playerX + (playerWidth / 2.0);
             for (int index = 0; index < 3; index++)
             {
                 double targetCenterX = Math.Clamp(
-                    playerCenterX + GetRandomDouble(-126, 126) + ((index - 1) * 34),
+                    mineCenterX + ((index - 1) * 96) + GetRandomDouble(-62, 62),
                     18,
                     Math.Max(18, Width - 18));
                 SpawnDb5000ElectroBallProjectile(mine.Owner, mineCenterX, launchCenterY, targetCenterX, index);
@@ -9196,22 +9291,32 @@ namespace TaskbarRPG
         {
             enemy.SpecialActionCounter = 0;
             enemy.SpecialActionStep = 0;
+            enemy.BehaviorTimerFrames = 0;
             enemy.AttackCooldownFrames = Db5000NewAttackCooldownFrames;
 
             int attackDuration = enemy.CurrentBehaviorId switch
             {
                 Db5000StompBehavior => Db5000StompAttackFrames,
                 Db5000ElectroMinesBehavior => Db5000ElectroMineAttackFrames,
+                Db5000VentHopSlamBehavior => Db5000VentHopAttackFrames,
                 _ => 24
             };
 
             if (enemy.CurrentBehaviorId.Equals(Db5000ElectroMinesBehavior, StringComparison.OrdinalIgnoreCase))
             {
                 enemy.SpecialActionStep = 3;
+                db5000RangedAttacksSinceStomp++;
             }
             else if (enemy.CurrentBehaviorId.Equals(Db5000StompBehavior, StringComparison.OrdinalIgnoreCase))
             {
                 enemy.SpecialActionStep = 1;
+                db5000RangedAttacksSinceStomp = 0;
+            }
+            else if (enemy.CurrentBehaviorId.Equals(Db5000VentHopSlamBehavior, StringComparison.OrdinalIgnoreCase))
+            {
+                enemy.SpecialActionStep = 0;
+                enemy.SpecialActionCounter = 0;
+                db5000RangedAttacksSinceStomp++;
             }
 
             StartEnemyAttack(enemy, Math.Max(attackDuration, Math.Max(1, GetAttackFramesForCurrentBehavior(enemy).Count) * 6));
@@ -9222,17 +9327,25 @@ namespace TaskbarRPG
             if (UpdateDb5000EncounterIntro(enemy))
                 return;
 
+            bool isVentHopTelegraph = enemy.CurrentBehaviorId.Equals(Db5000VentHopSlamBehavior, StringComparison.OrdinalIgnoreCase) && enemy.IsTelegraphing;
+            bool isVentHopAttack = enemy.CurrentBehaviorId.Equals(Db5000VentHopSlamBehavior, StringComparison.OrdinalIgnoreCase) && enemy.IsAttacking;
+            bool isVentHopAirborne = enemy.CurrentBehaviorId.Equals(Db5000VentHopSlamBehavior, StringComparison.OrdinalIgnoreCase) &&
+                (enemy.IsAttacking || !enemy.IsGrounded);
             enemy.HideFromView = false;
             enemy.IsAggroLocked = true;
             enemy.IsInvulnerable = false;
-            enemy.SuppressContactDamage = false;
+            enemy.SuppressContactDamage = isVentHopTelegraph || isVentHopAttack;
             enemy.Direction = playerCenterX >= enemyCenterX ? 1 : -1;
-            enemy.IsGrounded = true;
-            enemy.VerticalVelocity = 0;
-            enemy.Y = groundY + playerHeight - enemy.Body.Height;
+            if (!isVentHopAirborne)
+            {
+                enemy.IsGrounded = true;
+                enemy.VerticalVelocity = 0;
+                enemy.Y = groundY + playerHeight - enemy.Body.Height;
+            }
 
             double distanceToPlayer = Math.Abs(playerCenterX - enemyCenterX);
-            bool playerUnderRobot = distanceToPlayer <= Math.Max(92, enemy.Definition.Width * 0.5);
+            bool playerUnderRobot = distanceToPlayer <= GetDb5000StompRange(enemy);
+            bool playerCorneredByDb = ShouldDb5000UseVentHopSlam(enemy, playerCenterX, enemyCenterX, distanceToPlayer);
 
             if (enemy.IsTelegraphing)
             {
@@ -9268,24 +9381,60 @@ namespace TaskbarRPG
                         enemy.SpecialActionCounter++;
                     }
                 }
+                else if (enemy.CurrentBehaviorId.Equals(Db5000VentHopSlamBehavior, StringComparison.OrdinalIgnoreCase))
+                {
+                    enemy.SuppressContactDamage = true;
+                    if (enemy.SpecialActionStep == 0)
+                    {
+                        enemy.VerticalVelocity = Db5000VentHopLaunchVelocity;
+                        enemy.IsGrounded = false;
+                        enemy.SpecialActionStep = 1;
+                        SpawnDb5000VentBurstVisual(enemy, 1.0);
+                        SpawnDb5000SparkBurst(enemyCenterX, groundY + playerHeight - 8, 10, 2.4);
+                    }
+                    else if (!enemy.AttackEffectTriggered && enemy.IsGrounded && enemy.AttackAnimationTick >= 10)
+                    {
+                        SpawnDb5000VentBurstVisual(enemy, 0.9);
+                        SpawnDb5000StompHazards(enemy);
+                        enemy.AttackEffectTriggered = true;
+                        enemy.SpecialActionStep = 2;
+                        enemy.AttackFramesRemaining = Math.Min(enemy.AttackFramesRemaining, Db5000VentHopLandingRecoveryFrames);
+                    }
+                }
                 return;
             }
 
-            if (enemy.AttackCooldownFrames <= 0)
+            enemy.HorizontalVelocity = playerUnderRobot
+                ? 0
+                : enemy.Speed * 0.92 * enemy.Direction;
+
+            if (enemy.AttackCooldownFrames > 0)
             {
-                string nextBehavior = ChooseDb5000Behavior(enemy, playerCenterX);
-                SetEnemyBehavior(enemy, nextBehavior);
-                StartEnemyTelegraph(enemy, GetDb5000TelegraphDuration(enemy));
-                db5000AttackPatternIndex++;
+                enemy.BehaviorTimerFrames = 0;
                 return;
             }
 
-            double stoppingDistance = playerUnderRobot
-                ? Math.Max(18, enemy.Definition.Width * 0.16)
-                : Math.Max(58, enemy.Definition.Width * 0.28);
-            enemy.HorizontalVelocity = distanceToPlayer > stoppingDistance
-                ? enemy.Speed * 0.88 * enemy.Direction
-                : 0;
+            if (playerUnderRobot)
+            {
+                StartDb5000TelegraphedBehavior(enemy, Db5000StompBehavior);
+                return;
+            }
+
+            if (enemy.BehaviorTimerFrames > 0)
+            {
+                enemy.BehaviorTimerFrames = Math.Max(0, enemy.BehaviorTimerFrames - 1);
+                if (enemy.BehaviorTimerFrames <= 0)
+                    StartDb5000TelegraphedBehavior(enemy, ChooseDb5000RangedBehavior(playerCorneredByDb));
+                return;
+            }
+
+            if (ShouldDb5000ChooseRangedAttack())
+            {
+                StartDb5000TelegraphedBehavior(enemy, ChooseDb5000RangedBehavior(playerCorneredByDb));
+                return;
+            }
+
+            enemy.BehaviorTimerFrames = Db5000ForcedRangedChaseFrames;
         }
 
         private bool ApplyFallenKnightPhysics(SpawnedEnemy enemy)
@@ -9398,6 +9547,13 @@ namespace TaskbarRPG
                 else
                 {
                     double enemyGravity = isGooBoss ? gameConfig.Gravity * 1.35 : gameConfig.Gravity;
+                    bool isDb5000VentHopAirborne =
+                        IsDb5000Enemy(enemy) &&
+                        enemy.CurrentBehaviorId.Equals(Db5000VentHopSlamBehavior, StringComparison.OrdinalIgnoreCase) &&
+                        enemy.IsAttacking &&
+                        !enemy.AttackEffectTriggered;
+                    if (isDb5000VentHopAirborne)
+                        enemyGravity *= Db5000VentHopGravityMultiplier;
                     enemy.VerticalVelocity += enemyGravity;
                     enemy.Y += enemy.VerticalVelocity;
                     if (enemy.Y >= floorY)
@@ -11021,6 +11177,7 @@ namespace TaskbarRPG
                 bool showEnemyHealth = !enemy.IsDying &&
                     !((IsFallenKnightEnemy(enemy) && enemy.LinkedEnemy != null && !enemy.LinkedEnemy.IsReturningToOwner) ||
                       (IsFallenKnightHeadEnemy(enemy) && enemy.IsReturningToOwner));
+                enemy.Body.Visibility = Visibility.Visible;
                 enemy.Label.Visibility = showEnemyLabel ? Visibility.Visible : Visibility.Hidden;
                 enemy.HealthBg.Visibility = showEnemyHealth ? Visibility.Visible : Visibility.Hidden;
                 enemy.HealthFill.Visibility = showEnemyHealth ? Visibility.Visible : Visibility.Hidden;
